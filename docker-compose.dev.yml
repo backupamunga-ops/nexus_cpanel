@@ -1,0 +1,35 @@
+# NexusPanel development stack — control-plane dependencies only (P0)
+# The agent and managed services (nginx, postfix, ...) run on real hosts, not in compose.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nexuspanel-postgres
+    environment:
+      POSTGRES_USER: nexuspanel
+      POSTGRES_PASSWORD: nexuspanel-dev-only
+      POSTGRES_DB: nexuspanel
+    ports:
+      - "5432:5432"
+    volumes:
+      - nexuspanel_pgdata:/var/lib/postgresql/data
+      - ../specs/nexuspanel-schema-v2.0.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexuspanel -d nexuspanel"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: nexuspanel-valkey
+    ports:
+      - "6379:6379"
+    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  nexuspanel_pgdata:

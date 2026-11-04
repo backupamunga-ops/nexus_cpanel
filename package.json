@@ -1,0 +1,19 @@
+{
+  "name": "nexuspanel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NexusPanel — security-first hosting control panel (monorepo)",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}

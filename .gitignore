@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Builds
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Go
+apps/agent/bin/
+*.test
+*.out
+
+# Environment & secrets — NEVER commit real values
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+!/specs/**/*.pem
+
+# Logs & temp
+logs/
+*.log
+tmp/
+.cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Coverage
+coverage/
+.nyc_output/
