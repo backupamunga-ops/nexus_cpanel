@@ -1,0 +1,144 @@
+/*
+ * NexusPanel design tokens — P0 seed.
+ * Anchored to the extension SDK theme contract (specs/nexuspanel-extension-sdk-v1.0.md §7):
+ * dark-first, primary #6366f1, Inter, 8px radius. UI/UX workstream (WS5)
+ * owns evolution into the full design system (gap G-01).
+ */
+:root {
+  color-scheme: dark;
+  --np-primary: #6366f1;
+  --np-primary-hover: #818cf8;
+  --np-background: #0a0a0a;
+  --np-foreground: #fafafa;
+  --np-muted: #a1a1aa;
+  --np-border: #27272a;
+  --np-card: #111113;
+  --np-danger: #ef4444;
+  --np-success: #22c55e;
+  --np-warning: #eab308;
+  --np-radius: 8px;
+  --np-font: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --np-mono: ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html,
+body {
+  background: var(--np-background);
+  color: var(--np-foreground);
+  font-family: var(--np-font);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--np-primary-hover);
+  text-decoration: none;
+}
+
+.np-shell {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 100vh;
+}
+
+.np-sidebar {
+  border-right: 1px solid var(--np-border);
+  padding: 16px;
+  background: var(--np-card);
+}
+
+.np-sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 16px;
+}
+
+.np-sidebar a {
+  color: var(--np-muted);
+  padding: 8px 10px;
+  border-radius: var(--np-radius);
+}
+
+.np-sidebar a:hover,
+.np-sidebar a[data-active='true'] {
+  color: var(--np-foreground);
+  background: rgba(99, 102, 241, 0.12);
+}
+
+.np-main {
+  padding: 24px 32px;
+}
+
+.np-title {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.np-subtitle {
+  color: var(--np-muted);
+  margin-top: 4px;
+}
+
+.np-card {
+  background: var(--np-card);
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-radius);
+  padding: 16px;
+}
+
+.np-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--np-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--np-radius);
+  padding: 9px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.np-button:hover {
+  background: var(--np-primary-hover);
+}
+
+.np-button:focus-visible {
+  outline: 2px solid var(--np-primary-hover);
+  outline-offset: 2px;
+}
+
+.np-input {
+  width: 100%;
+  background: var(--np-background);
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-radius);
+  color: var(--np-foreground);
+  padding: 9px 12px;
+  font-size: 14px;
+}
+
+.np-input:focus-visible {
+  outline: 2px solid var(--np-primary);
+  outline-offset: 0;
+  border-color: var(--np-primary);
+}
+
+.np-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--np-border);
+  color: var(--np-muted);
+}
