@@ -1,38 +1,56 @@
 import {
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import * as crypto from 'node:crypto';
+import { hash as argon2Hash, verify as argon2Verify } from '@node-rs/argon2';
 
 /**
- * Password hashing seam (security control C1).
+ * Password hashing (security control C1).
  *
- * C1 requires Argon2id (m=64MiB, t=3, p=4). Node's stdlib has no argon2; the
- * native binding lands with Prisma + the users table in P1. The M0 dev-mode
- * bootstrap account uses scrypt (memory-hard, RFC 7914) so nothing in this file
- * is a placeholder API: the interface is final, the algorithm binding is the
- * only P1 change.
+ * C1 requires Argon2id (m=64MiB, t=3, p=4) — bound here via @node-rs/argon2
+ * (native, no WASM fallback: a soft-fallback would silently weaken C1).
+ * Verification also accepts legacy dev-bootstrap scrypt hashes so existing
+ * dev environments keep working until the next password change; production
+ * provisioning only ever creates Argon2id hashes (PHC string format).
  */
 export interface PasswordHasher {
   hash(password: string): Promise<string>;
   verify(password: string, hash: string): Promise<boolean>;
 }
 
+/** C1 parameters — mirrored in tests; changing them requires an ADR. */
+export const ARGON2ID_PARAMS = { memoryCost: 65_536, timeCost: 3, parallelism: 4 } as const;
+
 @Injectable()
 export class PasswordService implements PasswordHasher {
-  private static readonly params = { N: 2 ** 17, r: 8, p: 1, keylen: 32 };
-
   async hash(password: string): Promise<string> {
     if (typeof password !== 'string' || password.length < 12) {
       throw new Error('password policy: minimum 12 characters (C1)');
     }
-    const salt = crypto.randomBytes(16);
-    const { N, r, p, keylen } = PasswordService.params;
-    const key = crypto.scryptSync(password, salt, keylen, { N, r, p });
-    return `scrypt$${N}$${r}$${p}$${salt.toString('hex')}$${key.toString('hex')}`;
+    return argon2Hash(password, ARGON2ID_PARAMS);
   }
 
   async verify(password: string, stored: string): Promise<boolean> {
+    if (typeof stored !== 'string') {
+      return false;
+    }
+    if (stored.startsWith('$argon2id$')) {
+      try {
+        return await argon2Verify(stored, password);
+      } catch {
+        return false;
+      }
+    }
+    if (stored.startsWith('scrypt$')) {
+      return this.verifyLegacyScrypt(password, stored);
+    }
+    return false;
+  }
+
+  /** Dev-bootstrap format (M0 seam). Verify-only; never produced anymore. */
+  private verifyLegacyScrypt(password: string, stored: string): boolean {
     const [scheme, nStr, rStr, pStr, saltHex, keyHex] = stored.split('$');
     if (scheme !== 'scrypt') {
       return false;
@@ -41,6 +59,7 @@ export class PasswordService implements PasswordHasher {
       N: Number(nStr),
       r: Number(rStr),
       p: Number(pStr),
+      maxmem: 256 * 1024 * 1024,
     });
     return timingSafeEqual(key, Buffer.from(keyHex, 'hex'));
   }
@@ -56,17 +75,32 @@ function timingSafeEqual(a: Buffer, b: Buffer): boolean {
  */
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private readonly passwords = new Map<string, string>();
   private readonly hasher = new PasswordService();
+  private readonly bootstrapSeed: Promise<void>;
 
   constructor() {
     const email = process.env.DEV_ADMIN_EMAIL;
     const password = process.env.DEV_ADMIN_PASSWORD;
     if (email && password) {
-      void this.hasher.hash(password).then((h) => {
-        this.passwords.set(email.toLowerCase(), h);
-      });
+      this.bootstrapSeed = this.hasher
+        .hash(password)
+        .then((h) => {
+          this.passwords.set(email.toLowerCase(), h);
+          this.logger.log(`dev bootstrap admin seeded (${email})`);
+        })
+        .catch((e: unknown) => {
+          this.logger.error(`dev bootstrap seeding failed: ${(e as Error).message}`);
+        });
+    } else {
+      this.bootstrapSeed = Promise.resolve();
     }
+  }
+
+  /** Resolves once the dev bootstrap account is usable (dev/test aid). */
+  whenBootstrapSeeded(): Promise<void> {
+    return this.bootstrapSeed;
   }
 
   async login(
