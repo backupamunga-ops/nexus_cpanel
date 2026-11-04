@@ -1,0 +1,760 @@
+// ============================================================================
+// GENERATED FILE — DO NOT EDIT (ADR-0004: the DDL is the single source of truth)
+//
+//   generator: apps/control-plane/scripts/ddl-to-prisma.mjs
+//   source:    specs/nexuspanel-schema-v2.0.sql
+//   regenerate: `npm run prisma:gen`   ·   drift gate: `npm run prisma:check`
+//
+// Enforced by the DDL itself (not expressible in Prisma, verified in CI):
+//   - partial UNIQUE constraints / partial indexes (WHERE ...)
+//   - GIN indexes with operator classes (trigram search)
+//   - CHECK constraints (incl. the audit_chain_heads singleton guard)
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  email             String        @unique @db.Citext
+  password_hash     String
+  display_name      String
+  is_active         Boolean       @default(true)
+  is_super_admin    Boolean       @default(false)
+  email_verified_at  DateTime?     @db.Timestamptz(6)
+  totp_secret_enc   Bytes?
+  totp_enabled_at   DateTime?     @db.Timestamptz(6)
+  backup_codes_enc  Bytes?
+  failed_login_count  Int           @default(0)
+  locked_until      DateTime?     @db.Timestamptz(6)
+  last_login_at     DateTime?     @db.Timestamptz(6)
+  last_login_ip     String?       @db.Inet
+  preferences       Json          @default("{}")
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  user_sessions__user_id  UserSession[]  @relation("user_sessions.user_id")
+  api_tokens__user_id  ApiToken[]    @relation("api_tokens.user_id")
+  user_hosting_account_access__user_id  UserHostingAccountAccess[]  @relation("user_hosting_account_access.user_id")
+  user_hosting_account_access__granted_by_user_id  UserHostingAccountAccess[]  @relation("user_hosting_account_access.granted_by_user_id")
+  config_versions__rendered_by  ConfigVersion[]  @relation("config_versions.rendered_by")
+  audit_entries__actor_user_id  AuditEntry[]  @relation("audit_entries.actor_user_id")
+  notifications__user_id  Notification[]  @relation("notifications.user_id")
+  migration_jobs__initiated_by_user_id  MigrationJob[]  @relation("migration_jobs.initiated_by_user_id")
+  extensions__installed_by_user_id  Extension[]   @relation("extensions.installed_by_user_id")
+}
+
+model UserSession {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  user_id           String        @db.Uuid
+  refresh_token_hash  Bytes         @unique
+  device_fingerprint  String?
+  ip                String?       @db.Inet
+  user_agent        String?
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  last_used_at      DateTime      @default(now()) @db.Timestamptz(6)
+  expires_at        DateTime      @db.Timestamptz(6)
+  revoked_at        DateTime?     @db.Timestamptz(6)
+  user              User          @relation("user_sessions.user_id", fields: [user_id], references: [id], onDelete: Cascade)
+  @@index([user_id, revoked_at])
+}
+
+model ApiToken {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  user_id           String        @db.Uuid
+  name              String
+  token_hash        Bytes         @unique
+  scopes            String[]
+  ip_allowlist      String[]
+  expires_at        DateTime?     @db.Timestamptz(6)
+  last_used_at      DateTime?     @db.Timestamptz(6)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  revoked_at        DateTime?     @db.Timestamptz(6)
+  user              User          @relation("api_tokens.user_id", fields: [user_id], references: [id], onDelete: Cascade)
+  @@index([user_id, revoked_at])
+}
+
+model Package {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  owner_reseller_id  String?       @db.Uuid
+  name              String
+  description       String?
+  quotas            Json
+  features          Json
+  php_versions      String[]
+  isolation_profile  String        @default("standard")
+  over_quota_policy  String        @default("alert")
+  is_active         Boolean       @default(true)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  hosting_accounts__package_id  HostingAccount[]  @relation("hosting_accounts.package_id")
+}
+
+model HostingAccount {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  package_id        String        @db.Uuid
+  reseller_id       String?       @db.Uuid
+  parent_account_id  String?       @db.Uuid
+  username          String        @unique
+  linux_uid         Int           @unique
+  primary_domain    String?
+  isolation_profile  String        @default("standard")
+  status            String        @default("active")
+  suspension_reason  String?
+  homedir           String
+  php_default_version  String?
+  quotas_override   Json?
+  suspended_at      DateTime?     @db.Timestamptz(6)
+  terminated_at     DateTime?     @db.Timestamptz(6)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  package           Package       @relation("hosting_accounts.package_id", fields: [package_id], references: [id], onDelete: NoAction)
+  reseller          HostingAccount?  @relation("hosting_accounts.reseller_id", fields: [reseller_id], references: [id], onDelete: NoAction)
+  hosting_accounts__reseller_id  HostingAccount[]  @relation("hosting_accounts.reseller_id")
+  user_hosting_account_access__hosting_account_id  UserHostingAccountAccess[]  @relation("user_hosting_account_access.hosting_account_id")
+  resellers__hosting_account_id  Reseller[]    @relation("resellers.hosting_account_id")
+  domains__hosting_account_id  Domain[]      @relation("domains.hosting_account_id")
+  mail_domains__hosting_account_id  MailDomain[]  @relation("mail_domains.hosting_account_id")
+  account_smtp_relay_config__hosting_account_id  AccountSmtpRelayConfig[]  @relation("account_smtp_relay_config.hosting_account_id")
+  dns_zones__hosting_account_id  DnZone[]      @relation("dns_zones.hosting_account_id")
+  databases__hosting_account_id  Database[]    @relation("databases.hosting_account_id")
+  ftp_accounts__hosting_account_id  FtpAccount[]  @relation("ftp_accounts.hosting_account_id")
+  ssh_keys__hosting_account_id  SshKey[]      @relation("ssh_keys.hosting_account_id")
+  trash_entries__hosting_account_id  TrashEntry[]  @relation("trash_entries.hosting_account_id")
+  audit_entries__hosting_account_id  AuditEntry[]  @relation("audit_entries.hosting_account_id")
+  migration_jobs__target_account_id  MigrationJob[]  @relation("migration_jobs.target_account_id")
+  @@index([reseller_id])
+  @@index([parent_account_id])
+}
+
+model UserHostingAccountAccess {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  user_id           String        @db.Uuid
+  hosting_account_id  String        @db.Uuid
+  role              String
+  granted_by_user_id  String?       @db.Uuid
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  revoked_at        DateTime?     @db.Timestamptz(6)
+  user              User          @relation("user_hosting_account_access.user_id", fields: [user_id], references: [id], onDelete: Cascade)
+  hosting_account   HostingAccount  @relation("user_hosting_account_access.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
+  granted_by_user   User?         @relation("user_hosting_account_access.granted_by_user_id", fields: [granted_by_user_id], references: [id], onDelete: NoAction)
+  @@index([hosting_account_id])
+}
+
+model Reseller {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  hosting_account_id  String        @unique @db.Uuid
+  parent_reseller_id  String?       @db.Uuid
+  depth             Int           @default(1)
+  branding          Json          @default("{}")
+  custom_domain     String?
+  custom_domain_status  String?
+  custom_domain_ssl  Bytes?
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  hosting_account   HostingAccount  @relation("resellers.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
+  parent_reseller   Reseller?     @relation("resellers.parent_reseller_id", fields: [parent_reseller_id], references: [id], onDelete: NoAction)
+  resellers__parent_reseller_id  Reseller[]    @relation("resellers.parent_reseller_id")
+  @@index([parent_reseller_id])
+}
+
+model Domain {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  hosting_account_id  String        @db.Uuid
+  name              String        @unique
+  type              String
+  document_root     String
+  php_version       String?
+  is_active         Boolean       @default(true)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  hosting_account   HostingAccount  @relation("domains.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
+  subdomains__domain_id  Subdomain[]   @relation("subdomains.domain_id")
+  domain_aliases__domain_id  DomainAliase[]  @relation("domain_aliases.domain_id")
+  redirects__domain_id  Redirect[]    @relation("redirects.domain_id")
+  certificates__domain_id  Certificate[]  @relation("certificates.domain_id")
+  modsecurity_policies__domain_id  ModsecurityPolicy[]  @relation("modsecurity_policies.domain_id")
+  installed_applications__domain_id  InstalledApplication[]  @relation("installed_applications.domain_id")
+  git_deployments__domain_id  GitDeployment[]  @relation("git_deployments.domain_id")
+  staging_environments__source_domain_id  StagingEnvironment[]  @relation("staging_environments.source_domain_id")
+  @@index([hosting_account_id])
+}
+
+model Subdomain {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  domain_id         String        @db.Uuid
+  name              String
+  document_root     String
+  php_version       String?
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  domain            Domain        @relation("subdomains.domain_id", fields: [domain_id], references: [id], onDelete: Cascade)
+}
+
+model DomainAliase {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  domain_id         String        @db.Uuid
+  alias_name        String        @unique
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  domain            Domain        @relation("domain_aliases.domain_id", fields: [domain_id], references: [id], onDelete: Cascade)
+}
+
+model Redirect {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  domain_id         String        @db.Uuid
+  source_path       String
+  destination_url   String
+  status_code       Int           @default(301)
+  is_wildcard       Boolean       @default(false)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  domain            Domain        @relation("redirects.domain_id", fields: [domain_id], references: [id], onDelete: Cascade)
+}
+
+model MailDomain {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  hosting_account_id  String        @db.Uuid
+  name              String        @unique
+  is_active         Boolean       @default(true)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  hosting_account   HostingAccount  @relation("mail_domains.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
+  mailboxes__mail_domain_id  Mailboxe[]    @relation("mailboxes.mail_domain_id")
+  mail_aliases__mail_domain_id  MailAliase[]  @relation("mail_aliases.mail_domain_id")
+  mailing_lists__mail_domain_id  MailingList[]  @relation("mailing_lists.mail_domain_id")
+  @@index([hosting_account_id])
+}
+
+model Mailboxe {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  mail_domain_id    String        @db.Uuid
+  local_part        String
+  password_hash     Bytes
+  quota_mb          Int
+  used_mb           Int           @default(0)
+  is_active         Boolean       @default(true)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  mail_domain       MailDomain    @relation("mailboxes.mail_domain_id", fields: [mail_domain_id], references: [id], onDelete: Cascade)
+  autoresponders__mailbox_id  Autoresponder[]  @relation("autoresponders.mailbox_id")
+}
+
+model MailAliase {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  mail_domain_id    String        @db.Uuid
+  source_address    String
+  destination_address  String
+  is_catchall       Boolean       @default(false)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  mail_domain       MailDomain    @relation("mail_aliases.mail_domain_id", fields: [mail_domain_id], references: [id], onDelete: Cascade)
+}
+
+model Autoresponder {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  mailbox_id        String        @db.Uuid
+  subject           String
+  body              String
+  starts_at         DateTime?     @db.Timestamptz(6)
+  ends_at           DateTime?     @db.Timestamptz(6)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  mailbox           Mailboxe      @relation("autoresponders.mailbox_id", fields: [mailbox_id], references: [id], onDelete: Cascade)
+}
+
+model MailingList {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  mail_domain_id    String        @db.Uuid
+  list_name         String
+  description       String?
+  members           String[]      @default([])
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  mail_domain       MailDomain    @relation("mailing_lists.mail_domain_id", fields: [mail_domain_id], references: [id], onDelete: Cascade)
+}
+
+model AccountSmtpRelayConfig {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  hosting_account_id  String        @unique @db.Uuid
+  provider          String?
+  credentials_enc   Bytes?
+  is_active         Boolean       @default(true)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime      @default(now()) @db.Timestamptz(6)
+  hosting_account   HostingAccount  @relation("account_smtp_relay_config.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
+}
+
+model DnZone {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  hosting_account_id  String        @db.Uuid
+  name              String        @unique
+  is_active         Boolean       @default(true)
+  dnssec_enabled    Boolean       @default(false)
+  template_id       String?       @db.Uuid
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  hosting_account   HostingAccount  @relation("dns_zones.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
+  dns_records__zone_id  DnRecord[]    @relation("dns_records.zone_id")
+  dnssec_keys__zone_id  DnssecKey[]   @relation("dnssec_keys.zone_id")
+  @@index([hosting_account_id])
+}
+
+model DnZoneTemplate {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name              String        @unique
+  description       String?
+  records           Json
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+}
+
+model DnRecord {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  zone_id           String        @db.Uuid
+  name              String
+  type              String
+  content           String
+  ttl               Int           @default(3600)
+  priority          Int?
+  weight            Int?
+  port              Int?
+  is_active         Boolean       @default(true)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  zone              DnZone        @relation("dns_records.zone_id", fields: [zone_id], references: [id], onDelete: Cascade)
+  @@index([zone_id, name, type])
+}
+
+model DnssecKey {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  zone_id           String        @db.Uuid
+  key_type          String
+  algorithm         Int
+  private_key_enc   Bytes
+  public_key        String
+  active            Boolean       @default(true)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  retired_at        DateTime?     @db.Timestamptz(6)
+  zone              DnZone        @relation("dnssec_keys.zone_id", fields: [zone_id], references: [id], onDelete: Cascade)
+}
+
+model Database {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  hosting_account_id  String        @db.Uuid
+  engine            String
+  name              String
+  db_user           String
+  db_password_hash  Bytes
+  size_mb           Int           @default(0)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  hosting_account   HostingAccount  @relation("databases.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
+  installed_applications__database_id  InstalledApplication[]  @relation("installed_applications.database_id")
+  @@index([hosting_account_id])
+}
+
+model FtpAccount {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  hosting_account_id  String        @db.Uuid
+  username          String        @unique
+  password_hash     Bytes
+  home_directory    String
+  protocol          String
+  is_active         Boolean       @default(true)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  hosting_account   HostingAccount  @relation("ftp_accounts.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
+}
+
+model SshKey {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  hosting_account_id  String        @db.Uuid
+  name              String
+  public_key        String
+  fingerprint       String
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  hosting_account   HostingAccount  @relation("ssh_keys.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
+}
+
+model TrashEntry {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  hosting_account_id  String        @db.Uuid
+  original_path     String
+  trash_path        String
+  size_bytes        BigInt        @db.BigInt
+  deleted_at        DateTime      @default(now()) @db.Timestamptz(6)
+  purge_after       DateTime      @db.Timestamptz(6)
+  hosting_account   HostingAccount  @relation("trash_entries.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
+  @@index([hosting_account_id, purge_after])
+}
+
+model Certificate {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  domain_id         String        @db.Uuid
+  issuer            String
+  common_name       String
+  san_names         String[]
+  cert_pem_enc      Bytes
+  key_pem_enc       Bytes
+  issued_at         DateTime      @db.Timestamptz(6)
+  expires_at        DateTime      @db.Timestamptz(6)
+  last_renewed_at   DateTime?     @db.Timestamptz(6)
+  auto_renew        Boolean       @default(true)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  domain            Domain        @relation("certificates.domain_id", fields: [domain_id], references: [id], onDelete: Cascade)
+}
+
+model FirewallRule {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name              String
+  direction         String
+  protocol          String
+  port_from         Int?
+  port_to           Int?
+  source_cidr       String?       @db.Inet
+  action            String
+  is_active         Boolean       @default(true)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+}
+
+model Fail2banJail {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name              String        @unique
+  is_enabled        Boolean       @default(true)
+  maxretry          Int
+  findtime_sec      Int
+  bantime_sec       Int
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  fail2ban_bans__jail_id  Fail2banBan[]  @relation("fail2ban_bans.jail_id")
+}
+
+model Fail2banBan {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  jail_id           String        @db.Uuid
+  ip                String        @db.Inet
+  banned_at         DateTime      @db.Timestamptz(6)
+  banned_until      DateTime?     @db.Timestamptz(6)
+  reason            String?
+  jail              Fail2banJail  @relation("fail2ban_bans.jail_id", fields: [jail_id], references: [id], onDelete: Cascade)
+  @@index([ip, banned_until])
+}
+
+model ModsecurityPolicy {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  domain_id         String        @db.Uuid
+  mode              String
+  ruleset_version   String?
+  paranoia_level    Int           @default(1)
+  exclusions        Json          @default("[]")
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime      @default(now()) @db.Timestamptz(6)
+  domain            Domain        @relation("modsecurity_policies.domain_id", fields: [domain_id], references: [id], onDelete: Cascade)
+}
+
+model BackupDestination {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name              String
+  type              String
+  config_enc        Bytes
+  is_default        Boolean       @default(false)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  backup_jobs__destination_id  BackupJob[]   @relation("backup_jobs.destination_id")
+}
+
+model BackupJob {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name              String
+  scope             String
+  scope_id          String?       @db.Uuid
+  destination_id    String        @db.Uuid
+  schedule          String
+  retention_days    Int           @default(30)
+  is_enabled        Boolean       @default(true)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  destination       BackupDestination  @relation("backup_jobs.destination_id", fields: [destination_id], references: [id], onDelete: NoAction)
+  backup_runs__job_id  BackupRun[]   @relation("backup_runs.job_id")
+}
+
+model BackupRun {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  job_id            String        @db.Uuid
+  status            String
+  started_at        DateTime      @db.Timestamptz(6)
+  completed_at      DateTime?     @db.Timestamptz(6)
+  size_bytes        BigInt?       @db.BigInt
+  artifact_path     String?
+  checksum_sha256   Bytes?
+  verified_at       DateTime?     @db.Timestamptz(6)
+  error_message     String?
+  job               BackupJob     @relation("backup_runs.job_id", fields: [job_id], references: [id], onDelete: Cascade)
+  @@index([job_id, started_at(sort: Desc)])
+}
+
+model InstalledApplication {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  domain_id         String        @db.Uuid
+  app_type          String
+  version           String?
+  install_path      String
+  admin_user        String?
+  database_id       String?       @db.Uuid
+  status            String        @default("active")
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  domain            Domain        @relation("installed_applications.domain_id", fields: [domain_id], references: [id], onDelete: Cascade)
+  database          Database?     @relation("installed_applications.database_id", fields: [database_id], references: [id], onDelete: NoAction)
+}
+
+model GitDeployment {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  domain_id         String        @db.Uuid
+  provider          String
+  repo_url          String
+  branch            String        @default("main")
+  deploy_path       String
+  webhook_secret_enc  Bytes?
+  last_deployed_at  DateTime?     @db.Timestamptz(6)
+  last_deployed_sha  String?
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  domain            Domain        @relation("git_deployments.domain_id", fields: [domain_id], references: [id], onDelete: Cascade)
+}
+
+model StagingEnvironment {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  source_domain_id  String        @db.Uuid
+  staging_subdomain  String        @unique
+  document_root     String
+  cloned_at         DateTime?     @db.Timestamptz(6)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  source_domain     Domain        @relation("staging_environments.source_domain_id", fields: [source_domain_id], references: [id], onDelete: Cascade)
+}
+
+model Node {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name              String        @unique
+  type              String
+  hostname          String
+  public_ip         String?       @db.Inet
+  private_ip        String?       @db.Inet
+  is_active         Boolean       @default(true)
+  last_seen_at      DateTime?     @db.Timestamptz(6)
+  agent_version     String?
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  services__node_id  Service[]     @relation("services.node_id")
+  drift_events__node_id  DriftEvent[]  @relation("drift_events.node_id")
+  audit_entries__node_id  AuditEntry[]  @relation("audit_entries.node_id")
+}
+
+model Service {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  node_id           String        @db.Uuid
+  name              String
+  status            String
+  last_checked_at   DateTime?     @db.Timestamptz(6)
+  node              Node          @relation("services.node_id", fields: [node_id], references: [id], onDelete: Cascade)
+  @@unique([node_id, name])
+}
+
+model ConfigVersion {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  target_type       String
+  target_id         String        @db.Uuid
+  version           Int
+  content           String
+  rendered_by       String?       @db.Uuid
+  is_active         Boolean       @default(false)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  rendered_by_users  User?         @relation("config_versions.rendered_by", fields: [rendered_by], references: [id], onDelete: NoAction)
+  config_transactions__from_version_id  ConfigTransaction[]  @relation("config_transactions.from_version_id")
+  config_transactions__to_version_id  ConfigTransaction[]  @relation("config_transactions.to_version_id")
+  @@unique([target_type, target_id, version])
+}
+
+model ConfigTransaction {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  target_type       String
+  target_id         String        @db.Uuid
+  from_version_id   String?       @db.Uuid
+  to_version_id     String?       @db.Uuid
+  status            String
+  started_at        DateTime      @default(now()) @db.Timestamptz(6)
+  completed_at      DateTime?     @db.Timestamptz(6)
+  error_message     String?
+  from_version      ConfigVersion?  @relation("config_transactions.from_version_id", fields: [from_version_id], references: [id], onDelete: NoAction)
+  to_version        ConfigVersion?  @relation("config_transactions.to_version_id", fields: [to_version_id], references: [id], onDelete: NoAction)
+}
+
+model DriftEvent {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  node_id           String        @db.Uuid
+  target_type       String
+  target_id         String        @db.Uuid
+  expected_hash     Bytes
+  actual_hash       Bytes
+  detected_at       DateTime      @default(now()) @db.Timestamptz(6)
+  resolved_at       DateTime?     @db.Timestamptz(6)
+  resolution        String?
+  node              Node          @relation("drift_events.node_id", fields: [node_id], references: [id], onDelete: NoAction)
+}
+
+model AuditEntry {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  occurred_at       DateTime      @default(now()) @db.Timestamptz(6)
+  actor_user_id     String?       @db.Uuid
+  actor_ip          String?       @db.Inet
+  node_id           String?       @db.Uuid
+  hosting_account_id  String?       @db.Uuid
+  operation         String
+  parameters        Json          @default("{}")
+  outcome           String
+  prior_hash        Bytes?
+  this_hash         Bytes
+  prev_entry_id     String?       @db.Uuid
+  actor_user        User?         @relation("audit_entries.actor_user_id", fields: [actor_user_id], references: [id], onDelete: NoAction)
+  node              Node?         @relation("audit_entries.node_id", fields: [node_id], references: [id], onDelete: NoAction)
+  hosting_account   HostingAccount?  @relation("audit_entries.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: NoAction)
+  prev_entry        AuditEntry?   @relation("audit_entries.prev_entry_id", fields: [prev_entry_id], references: [id], onDelete: NoAction)
+  audit_entries__prev_entry_id  AuditEntry[]  @relation("audit_entries.prev_entry_id")
+  audit_chain_heads__last_entry_id  AuditChainHead[]  @relation("audit_chain_heads.last_entry_id")
+  @@index([occurred_at(sort: Desc)])
+  @@index([actor_user_id, occurred_at(sort: Desc)])
+  @@index([hosting_account_id, occurred_at(sort: Desc)])
+}
+
+model AuditChainHead {
+  id                Boolean       @id @default(true)
+  last_entry_id     String        @db.Uuid
+  last_hash         Bytes
+  updated_at        DateTime      @default(now()) @db.Timestamptz(6)
+  last_entry        AuditEntry    @relation("audit_chain_heads.last_entry_id", fields: [last_entry_id], references: [id], onDelete: NoAction)
+}
+
+model JobMetadata {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  bullmq_job_id     String
+  queue_name        String
+  job_type          String
+  status            String
+  payload           Json
+  result            Json?
+  progress          Int           @default(0)
+  attempts          Int           @default(0)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime      @default(now()) @db.Timestamptz(6)
+  completed_at      DateTime?     @db.Timestamptz(6)
+  @@index([queue_name, status])
+  @@index([created_at(sort: Desc)])
+}
+
+model Webhook {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  name              String
+  url               String
+  secret_enc        Bytes
+  events            String[]
+  is_active         Boolean       @default(true)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  webhook_deliveries__webhook_id  WebhookDelivery[]  @relation("webhook_deliveries.webhook_id")
+}
+
+model WebhookDelivery {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  webhook_id        String        @db.Uuid
+  event_type        String
+  payload           Json
+  attempt           Int           @default(1)
+  status            String
+  response_status   Int?
+  response_body     String?
+  attempted_at      DateTime      @default(now()) @db.Timestamptz(6)
+  next_retry_at     DateTime?     @db.Timestamptz(6)
+  webhook           Webhook       @relation("webhook_deliveries.webhook_id", fields: [webhook_id], references: [id], onDelete: Cascade)
+  @@index([webhook_id, status])
+}
+
+model Notification {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  user_id           String        @db.Uuid
+  category          String
+  title             String
+  body              String
+  action_url        String?
+  severity          String        @default("info")
+  read_at           DateTime?     @db.Timestamptz(6)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  user              User          @relation("notifications.user_id", fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+model MigrationJob {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  source_platform   String
+  source_identifier  String
+  target_account_id  String?       @db.Uuid
+  initiated_by_user_id  String        @db.Uuid
+  status            String
+  analysis_report   Json?
+  verification_report  Json?
+  started_at        DateTime      @default(now()) @db.Timestamptz(6)
+  completed_at      DateTime?     @db.Timestamptz(6)
+  error_message     String?
+  target_account    HostingAccount?  @relation("migration_jobs.target_account_id", fields: [target_account_id], references: [id], onDelete: NoAction)
+  initiated_by_user  User          @relation("migration_jobs.initiated_by_user_id", fields: [initiated_by_user_id], references: [id], onDelete: NoAction)
+  migration_entity_mappings__migration_job_id  MigrationEntityMapping[]  @relation("migration_entity_mappings.migration_job_id")
+  @@index([status, started_at(sort: Desc)])
+}
+
+model MigrationEntityMapping {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  migration_job_id  String        @db.Uuid
+  entity_type       String
+  source_id         String
+  target_id         String?       @db.Uuid
+  status            String
+  checksum_source   Bytes?
+  checksum_target   Bytes?
+  notes             String?
+  migration_job     MigrationJob  @relation("migration_entity_mappings.migration_job_id", fields: [migration_job_id], references: [id], onDelete: Cascade)
+  @@index([migration_job_id, status])
+}
+
+model Extension {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  slug              String        @unique
+  name              String
+  version           String
+  manifest          Json
+  granted_scopes    String[]
+  status            String
+  installed_by_user_id  String        @db.Uuid
+  installed_at      DateTime      @default(now()) @db.Timestamptz(6)
+  last_error        String?
+  installed_by_user  User          @relation("extensions.installed_by_user_id", fields: [installed_by_user_id], references: [id], onDelete: NoAction)
+  extension_registrations__extension_id  ExtensionRegistration[]  @relation("extension_registrations.extension_id")
+}
+
+model ExtensionRegistration {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  extension_id      String        @db.Uuid
+  callback_url      String
+  shared_secret_enc  Bytes
+  registered_at     DateTime      @default(now()) @db.Timestamptz(6)
+  last_heartbeat_at  DateTime?     @db.Timestamptz(6)
+  is_active         Boolean       @default(true)
+  extension         Extension     @relation("extension_registrations.extension_id", fields: [extension_id], references: [id], onDelete: Cascade)
+}
