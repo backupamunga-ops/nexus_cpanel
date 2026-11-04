@@ -1,0 +1,17 @@
+{
+  "name": "@nexuspanel/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "nexus — NexusPanel CLI. Validated 1:1 against the OpenAPI catalog in CI (API spec §7). Implementation starts in P2.",
+  "bin": {
+    "nexus": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "@types/node": "^22.10.2"
+  }
+}
