@@ -47,4 +47,7 @@ export const WEB_KNOWN_PERMISSIONS: readonly string[] = [
   'site:update',
   'ssh:manage',
   'ssh:read',
+  'ssl:issue',
+  'ssl:read',
+  'ssl:revoke',
 ];

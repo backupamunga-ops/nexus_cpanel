@@ -11,43 +11,88 @@
   <aside>
     <div class="brand">NexusPanel Docs</div>
     <div class="tag">v0.1.0-m0 · preview</div>
-    <div class="group">Start here</div>
+    <div class="group">Using the panel</div>
     <nav>
-      <a href="getting-started.html">Getting started</a>
-      <a href="first-account.html">Your first hosting account</a>
-    </nav>
-    <div class="group">Admin guide</div>
-    <nav>
-      <a href="accounts.html">Accounts & packages</a>
-      <a href="audit.html">Audit log & chain</a>
+      <a href="accounts.html">Accounts &amp; packages</a>
+      <a href="sites.html">Sites &amp; domains</a>
+      <a href="files.html">Files &amp; trash</a>
+      <a class="active" href="ssl.html">SSL certificates</a>
     </nav>
     <div class="back"><a href="../index.html">← Documentation home</a></div>
   </aside>
   <main>
     <h1>SSL certificates</h1>
     <p class="lede">
-      This chapter opens with its build phase. The scope below is committed in
-      the master specification; nothing here is live in the M0 preview.
+      Every site can carry a TLS certificate — issued automatically via
+      Let's Encrypt (ACME), or installed manually. The panel stores an
+      encrypted copy for metadata and renewals; the node keeps the serving
+      copy. Responses and screens carry metadata only — private key material
+      never re-appears once stored (ADR-0009).
     </p>
 
-    <p><span class="badge">planned for P3</span></p>
+    <h2>Issuing via ACME <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Open the site in <strong>Sites</strong>, find the <em>SSL
+      certificate</em> card, enter the registration email, and press
+      <em>Issue via ACME</em>. What happens next:
+    </p>
+    <ol>
+      <li>the agent runs the full ACME v2 (RFC 8555) flow: account
+        registration, order, http-01 authorizations;</li>
+      <li>challenge tokens are written to the site's own document root
+        (<code>.well-known/acme-challenge/</code>) so the running webserver
+        — which owns port 80 — serves them; the agent never competes for the
+        port, and the files are removed on every exit path;</li>
+      <li>the agent confines the webroot to the hosting home root and
+        validates it against planted symlinks;</li>
+      <li>on success the certificate chain and key are installed on the node
+        (key file mode 0600) and returned to the control plane, which stores
+        them <strong>encrypted (AES-256-GCM)</strong> against
+        <code>PANEL_SECRET_KEY</code>;</li>
+      <li>the ACME account key persists on the node so re-issuance reuses the
+        same Let's Encrypt account — rate-limit friendly.</li>
+    </ol>
+    <div class="callout warn">
+      <strong>dns-01 is not yet available</strong> — the DNS write path does
+      not exist yet, so the API refuses <code>challenge_type: dns01</code>
+      with a documented precondition instead of failing mysteriously.
+      Wildcard certificates therefore cannot be issued until it lands.
+    </div>
 
-    <h2>Planned scope</h2>
+    <h2>Manual installation <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Commercial or existing certificates install through
+      <code>POST /ssl/certificates</code> with the domain, the certificate
+      PEM and the key PEM. The node validates that the pair actually matches
+      — different public keys are the classic outage, and that class of
+      mistake is rejected before anything is written. Manual certificates
+      are not auto-renewed: when they near expiry, install the renewed pair.
+    </p>
+
+    <h2>Renewal and revocation</h2>
     <ul>
-      <li>Certificate issuance per site (http-01 + dns-01)</li>
-      <li>Automatic renewal with failure alerts</li>
-      <li>Manual upload and revocation</li>
+      <li><strong>ACME certificates</strong> — <em>Renew</em> re-runs
+        issuance; the encrypted copy and <code>last_renewed_at</code> update
+        together.</li>
+      <li><strong>Revocation</strong> — removes the node files and the
+        stored row; the audit chain records who revoked what, when.</li>
+      <li><strong>Expiry visibility</strong> — the sites screen shows issuer
+        and expiry; the cross-domain list (<code>GET /ssl/certificates</code>)
+        feeds the expiry dashboard.</li>
     </ul>
 
-    <div class="callout">
-      Docs ship together with the feature (Definition of Done, BUILD_PLAN §1) —
-      when ssl certificates goes live, this page gets full procedures and
-      regenerated screenshots in the same merge.
-    </div>
+    <h2>Key management</h2>
+    <p>
+      Two deployment secrets matter for SSL (see ADR-0009):
+      <code>CP_SIGNING_KEY_PATH</code> (control-plane → agent command
+      signing) and <code>PANEL_SECRET_KEY</code> (secrets at rest, ≥ 32
+      bytes of entropy). The panel refuses to encrypt or decrypt without the
+      latter — a missing key is a hard startup error, not a silent default.
+    </p>
 
     <div class="pager">
       <a href="../index.html">← Documentation home</a>
-      <a href="audit.html">Audit log &amp; chain →</a>
+      <a href="../index.html">Configuration engine (coming with its milestone) →</a>
     </div>
   </main>
 </div>

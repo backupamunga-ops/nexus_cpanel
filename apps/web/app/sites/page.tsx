@@ -47,6 +47,17 @@ interface RedirectDto {
   is_wildcard: boolean;
 }
 
+interface SslCertDto {
+  id: string;
+  domain_name: string;
+  issuer: string;
+  common_name: string;
+  san_names: string[];
+  expires_at: string;
+  last_renewed_at: string | null;
+  auto_renew: boolean;
+}
+
 interface AccountOption {
   id: string;
   username: string;
@@ -63,6 +74,8 @@ export default function SitesPage() {
   const [subdomains, setSubdomains] = useState<SubdomainDto[]>([]);
   const [aliases, setAliases] = useState<AliasDto[]>([]);
   const [redirects, setRedirects] = useState<RedirectDto[]>([]);
+  const [cert, setCert] = useState<SslCertDto | null>(null);
+  const [acmeEmail, setAcmeEmail] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -108,15 +121,18 @@ export default function SitesPage() {
     setSubdomains([]);
     setAliases([]);
     setRedirects([]);
+    setCert(null);
     try {
-      const [s, a, r] = await Promise.all([
+      const [s, a, r, ssl] = await Promise.all([
         api<{ data: SubdomainDto[] }>(`/domains/${d.id}/subdomains`),
         api<{ data: AliasDto[] }>(`/domains/${d.id}/aliases`),
         api<{ data: RedirectDto[] }>(`/domains/${d.id}/redirects`),
+        api<{ certificate: SslCertDto | null }>(`/domains/${d.id}/ssl`),
       ]);
       setSubdomains(s.data ?? []);
       setAliases(a.data ?? []);
       setRedirects(r.data ?? []);
+      setCert(ssl.certificate ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'failed to load site detail');
     }
@@ -507,6 +523,89 @@ export default function SitesPage() {
                 >
                   Add redirect
                 </button>
+              </div>
+
+              <div className="np-card">
+                <h3 style={{ marginTop: 0 }}>SSL certificate</h3>
+                {!cert && (
+                  <>
+                    <p style={{ color: 'var(--np-muted)', fontSize: 13 }}>
+                      No certificate. ACME (Let&apos;s Encrypt) issues over http-01 with the
+                      challenge served from this site&apos;s webroot; dns-01 is not yet available.
+                    </p>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        className="np-input"
+                        value={acmeEmail}
+                        onChange={(e) => setAcmeEmail(e.target.value)}
+                        placeholder="email for ACME registration"
+                        style={{ maxWidth: 260 }}
+                        aria-label="ACME email"
+                      />
+                      <button
+                        className="np-button"
+                        disabled={busy || acmeEmail.trim() === ''}
+                        onClick={() =>
+                          void mutate(
+                            () =>
+                              api(`/domains/${selected.id}/ssl/issue`, {
+                                method: 'POST',
+                                body: JSON.stringify({ email: acmeEmail.trim() }),
+                              }),
+                            `certificate issued for ${selected.name}.`,
+                          )
+                        }
+                      >
+                        Issue via ACME
+                      </button>
+                    </div>
+                  </>
+                )}
+                {cert && (
+                  <>
+                    <div style={{ fontSize: 13 }}>
+                      <strong>{cert.common_name}</strong> · issuer {cert.issuer}
+                      {cert.auto_renew && <span className="np-badge">auto-renew</span>}
+                      <br />
+                      <span style={{ color: 'var(--np-muted)' }}>
+                        expires {new Date(cert.expires_at).toLocaleDateString()}
+                        {cert.last_renewed_at &&
+                          ` · last renewed ${new Date(cert.last_renewed_at).toLocaleDateString()}`}
+                      </span>
+                      <br />
+                      <span style={{ color: 'var(--np-muted)' }}>SANs: {cert.san_names.join(', ') || '—'}</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                      {cert.issuer !== 'manual' && (
+                        <button
+                          className="np-button"
+                          disabled={busy}
+                          onClick={() =>
+                            void mutate(
+                              () => api(`/domains/${selected.id}/ssl/renew`, { method: 'POST' }),
+                              `certificate renewed for ${selected.name}.`,
+                            )
+                          }
+                        >
+                          Renew
+                        </button>
+                      )}
+                      <button
+                        className="np-button"
+                        disabled={busy}
+                        onClick={() => {
+                          if (!window.confirm(`Revoke the certificate for ${selected.name}?`)) return;
+                          void mutate(
+                            () => api(`/domains/${selected.id}/ssl`, { method: 'DELETE' }),
+                            'certificate revoked and removed.',
+                          );
+                        }}
+                      >
+                        Revoke
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </>
           )}
