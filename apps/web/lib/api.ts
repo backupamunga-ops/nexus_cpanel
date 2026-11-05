@@ -1,12 +1,14 @@
 'use client';
 
 /**
- * Control-plane API client for the M0 slice.
+ * Control-plane API client.
  *
- * Token posture (C3): the 15-minute access token lives in memory +
- * sessionStorage; the 7-day rotating refresh token in localStorage. P2 moves
- * refresh storage to an httpOnly, SameSite=Strict cookie set by the control
- * plane (with CSRF double-submit) — tracked in docs/plan/BUILD_PLAN.md.
+ * Token posture (C3, P2): the 15-minute access token lives in memory +
+ * sessionStorage ONLY. The rotating refresh token never touches JavaScript-
+ * observable storage: login/refresh opt into the control plane's httpOnly
+ * cookie transport (`X-Auth-Transport: cookie`), and the server stores it in
+ * an httpOnly, SameSite=Strict cookie scoped to /api/v1/auth. The response
+ * body carries no refresh token at all — the XSS read path is gone.
  *
  * A stable per-browser device fingerprint is sent on login/refresh so the
  * backend can bind sessions to the device (C3).
@@ -14,9 +16,19 @@
 
 const BASE = '/api/v1';
 const ACCESS_KEY = 'nexuspanel.access';
-const REFRESH_KEY = 'nexuspanel.refresh';
 const USER_KEY = 'nexuspanel.user';
 const FP_KEY = 'nexuspanel.fp';
+
+/** Detail string the control plane returns when an enrolled user omits the TOTP code. */
+export const TOTP_CHALLENGE_DETAIL = 'totp code required';
+
+/** Raised when the backend demands a second factor before completing login. */
+export class TotpChallengeError extends Error {
+  constructor() {
+    super(TOTP_CHALLENGE_DETAIL);
+    this.name = 'TotpChallengeError';
+  }
+}
 
 export interface SessionUser {
   id: string;
@@ -46,51 +58,62 @@ export function getUser(): SessionUser | null {
   return raw ? (JSON.parse(raw) as SessionUser) : null;
 }
 
-function store(access: string, refresh: string, user: SessionUser): void {
+function store(access: string, user: SessionUser): void {
   sessionStorage.setItem(ACCESS_KEY, access);
-  localStorage.setItem(REFRESH_KEY, refresh);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
 export function clearSession(): void {
   sessionStorage.removeItem(ACCESS_KEY);
-  localStorage.removeItem(REFRESH_KEY);
   localStorage.removeItem(USER_KEY);
+  // Legacy M0 clients kept the refresh token here; remove it if present.
+  localStorage.removeItem('nexuspanel.refresh');
 }
 
-export async function login(email: string, password: string): Promise<SessionUser> {
+export async function login(email: string, password: string, totp?: string): Promise<SessionUser> {
   const res = await fetch(`${BASE}/auth/login`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Device-Fingerprint': deviceFingerprint() },
-    body: JSON.stringify({ email, password }),
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Device-Fingerprint': deviceFingerprint(),
+      'X-Auth-Transport': 'cookie',
+    },
+    body: JSON.stringify({ email, password, ...(totp ? { totp } : {}) }),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (body?.detail === TOTP_CHALLENGE_DETAIL) {
+      throw new TotpChallengeError();
+    }
     throw new Error(body?.detail ?? 'Login failed.');
   }
-  store(body.access_token, body.refresh_token, body.user);
+  store(body.access_token, body.user);
   return body.user as SessionUser;
 }
 
 let refreshInFlight: Promise<boolean> | null = null;
 
-/** Single-flight refresh: N concurrent 401s trigger exactly one rotation. */
+/**
+ * Single-flight refresh: N concurrent 401s trigger exactly one rotation.
+ * The httpOnly cookie is attached by the browser automatically (same-origin);
+ * no body token exists anymore.
+ */
 async function refreshSession(): Promise<boolean> {
   refreshInFlight ??= (async () => {
     try {
-      const refresh = localStorage.getItem(REFRESH_KEY);
-      if (!refresh) return false;
       const res = await fetch(`${BASE}/auth/refresh`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Device-Fingerprint': deviceFingerprint() },
-        body: JSON.stringify({ refresh_token: refresh }),
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Device-Fingerprint': deviceFingerprint(),
+        },
       });
       if (!res.ok) {
         clearSession();
         return false;
       }
       const body = await res.json();
-      store(body.access_token, body.refresh_token, body.user);
+      store(body.access_token, body.user);
       return true;
     } catch {
       return false;

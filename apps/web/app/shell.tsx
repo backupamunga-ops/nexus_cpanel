@@ -7,6 +7,7 @@ import { logout, SessionUser } from '../lib/api';
 const NAV = [
   { href: '/', label: 'Dashboard' },
   { href: '/accounts', label: 'Accounts' },
+  { href: '/sessions', label: 'Sessions' },
 ];
 
 /**
