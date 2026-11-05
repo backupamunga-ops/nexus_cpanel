@@ -246,6 +246,7 @@ model MailDomain {
   hosting_account   HostingAccount  @relation("mail_domains.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
   mailboxes__mail_domain_id  Mailboxe[]    @relation("mailboxes.mail_domain_id")
   mail_aliases__mail_domain_id  MailAliase[]  @relation("mail_aliases.mail_domain_id")
+  mail_domain_dkim__mail_domain_id  MailDomainDkim[]  @relation("mail_domain_dkim.mail_domain_id")
   mailing_lists__mail_domain_id  MailingList[]  @relation("mailing_lists.mail_domain_id")
   @@map("mail_domains")
   @@index([hosting_account_id])
@@ -277,6 +278,16 @@ model MailAliase {
   deleted_at        DateTime?     @db.Timestamptz(6)
   mail_domain       MailDomain    @relation("mail_aliases.mail_domain_id", fields: [mail_domain_id], references: [id], onDelete: Cascade)
   @@map("mail_aliases")
+}
+
+model MailDomainDkim {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  mail_domain_id    String        @unique @db.Uuid
+  selector          String
+  rotated_at        DateTime?     @db.Timestamptz(6)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  mail_domain       MailDomain    @relation("mail_domain_dkim.mail_domain_id", fields: [mail_domain_id], references: [id], onDelete: Cascade)
+  @@map("mail_domain_dkim")
 }
 
 model Autoresponder {

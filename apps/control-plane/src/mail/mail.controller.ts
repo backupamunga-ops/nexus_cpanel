@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { MailService } from './mail.service';
+import { MailDeliverabilityService } from './mail-deliverability.service';
 import { RequirePermission, SessionOnly } from '../common/permissions';
 import { AuthContext, CurrentUser } from '../auth/request-context';
 import { Actor } from '../sites/sites.service';
@@ -10,10 +11,18 @@ import { Actor } from '../sites/sites.service';
  * body account_id and the service mirrors the visibility check (404, §3.2).
  * Mailbox password rotation is additionally @SessionOnly(): a stolen
  * automation token must not be able to mint working mailbox credentials.
+ *
+ * B08 deliverability additions (ADR-0014): DKIM enable/rotate (DNS record
+ * auto-written through the DNS module), SPF/DMARC upserts, server-wide
+ * relay profile (GET/PUT/DELETE /mail/relay — §4.8's per-domain routes
+ * amended by ADR-0002/0014), and server-wide queue tooling.
  */
 @Controller('mail')
 export class MailController {
-  constructor(private readonly mail: MailService) {}
+  constructor(
+    private readonly mail: MailService,
+    private readonly deliverability: MailDeliverabilityService,
+  ) {}
 
   @Get('domains')
   @RequirePermission('mail:list')
@@ -140,6 +149,98 @@ export class MailController {
     @Param('aid') autoresponderId: string,
   ): Promise<void> {
     await this.mail.deleteAutoresponder(actorOf(user), id, autoresponderId);
+  }
+
+  // ---- B08: deliverability (ADR-0014) ---------------------------------------
+
+  @Get('domains/:id/dkim')
+  @RequirePermission('mail:read')
+  async getDkim(@CurrentUser() user: AuthContext, @Param('id') id: string): Promise<unknown> {
+    return this.deliverability.getDkim(actorOf(user), id);
+  }
+
+  @Post('domains/:id/dkim')
+  @RequirePermission('mail:manage')
+  async enableDkim(
+    @CurrentUser() user: AuthContext,
+    @Param('id') id: string,
+    @Body() body: { selector?: string },
+  ): Promise<unknown> {
+    return this.deliverability.enableDkim(actorOf(user), id, body);
+  }
+
+  @Post('domains/:id/dkim/rotate')
+  @RequirePermission('mail:manage')
+  async rotateDkim(
+    @CurrentUser() user: AuthContext,
+    @Param('id') id: string,
+    @Body() body: { selector?: string },
+  ): Promise<unknown> {
+    return this.deliverability.rotateDkim(actorOf(user), id, body);
+  }
+
+  @Post('domains/:id/spf')
+  @RequirePermission('mail:manage')
+  async applySpf(
+    @CurrentUser() user: AuthContext,
+    @Param('id') id: string,
+    @Body() body: { record?: string },
+  ): Promise<unknown> {
+    return this.deliverability.applySpf(actorOf(user), id, body);
+  }
+
+  @Post('domains/:id/dmarc')
+  @RequirePermission('mail:manage')
+  async applyDmarc(
+    @CurrentUser() user: AuthContext,
+    @Param('id') id: string,
+    @Body() body: { policy?: string; rua?: string },
+  ): Promise<unknown> {
+    return this.deliverability.applyDmarc(actorOf(user), id, body);
+  }
+
+  // ---- B08: server-wide relay (ADR-0002/0014) ---------------------------------
+
+  @Get('relay')
+  @RequirePermission('mail:relay:manage')
+  async getRelay(): Promise<unknown> {
+    return this.deliverability.getRelay();
+  }
+
+  @Put('relay')
+  @RequirePermission('mail:relay:manage')
+  async putRelay(
+    @CurrentUser() user: AuthContext,
+    @Body() body: { provider?: string; smtp_host?: string; smtp_port?: number; username?: string; password?: string },
+  ): Promise<unknown> {
+    return this.deliverability.putRelay(actorOf(user), body);
+  }
+
+  @Delete('relay')
+  @HttpCode(204)
+  @RequirePermission('mail:relay:manage')
+  async deleteRelay(@CurrentUser() user: AuthContext): Promise<void> {
+    await this.deliverability.deleteRelay(actorOf(user));
+  }
+
+  // ---- B08: queue tools (server-wide, §4.8) ------------------------------------
+
+  @Get('queue')
+  @RequirePermission('mail:queue:read')
+  async queueList(): Promise<unknown> {
+    return this.deliverability.queueList();
+  }
+
+  @Post('queue/flush')
+  @RequirePermission('mail:queue:manage')
+  async queueFlush(@CurrentUser() user: AuthContext, @Body() body: { queue_id?: string }): Promise<unknown> {
+    return this.deliverability.queueFlush(actorOf(user), body?.queue_id);
+  }
+
+  @Post('queue/:id/retry')
+  @RequirePermission('mail:queue:manage')
+  async queueRetry(@CurrentUser() user: AuthContext, @Param('id') messageId: string): Promise<unknown> {
+    return this.deliverability.queueRetry(actorOf(user), messageId);
   }
 }
 

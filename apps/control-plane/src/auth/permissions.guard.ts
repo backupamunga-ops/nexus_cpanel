@@ -290,6 +290,27 @@ export class PermissionsGuard implements CanActivate {
     });
     if (certificate) return certificate.domain.hosting_account_id;
 
+    // P4 families: dns zones (B06) and mail domains / mailboxes (B07) were
+    // missing from this chain — non-super-admin per-resource routes 404ed at
+    // the guard even for owners. Cheapest first, then mailboxes → domain.
+    const dnsZone = await this.prisma.dnZone.findFirst({
+      where: { id, deleted_at: null },
+      select: { hosting_account_id: true },
+    });
+    if (dnsZone) return dnsZone.hosting_account_id;
+
+    const mailDomain = await this.prisma.mailDomain.findFirst({
+      where: { id, deleted_at: null },
+      select: { hosting_account_id: true },
+    });
+    if (mailDomain) return mailDomain.hosting_account_id;
+
+    const mailbox = await this.prisma.mailboxe.findFirst({
+      where: { id, deleted_at: null },
+      select: { mail_domain: { select: { hosting_account_id: true } } },
+    });
+    if (mailbox) return mailbox.mail_domain.hosting_account_id;
+
     return null;
   }
 }

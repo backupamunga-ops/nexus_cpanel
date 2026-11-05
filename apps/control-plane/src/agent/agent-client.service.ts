@@ -802,6 +802,48 @@ export class AgentClientService {
     return r.result;
   }
 
+  async mailApplyDkim(domain: string, selector: string, privateKeyPem: string): Promise<{
+    status: string;
+    domain: string;
+    selector: string;
+    dns_txt: string;
+    key_fingerprint: string;
+    opendkim: { applied: boolean; skipped?: string };
+  }> {
+    const r = await this.call<{
+      status: string;
+      domain: string;
+      selector: string;
+      dns_txt: string;
+      key_fingerprint: string;
+      opendkim: { applied: boolean; skipped?: string };
+    }>('mail.apply_dkim', { domain, selector, private_key_pem: privateKeyPem });
+    return r.result;
+  }
+
+  async mailQueueList(): Promise<{
+    queue: Array<{ queue_id: string; size: number; arrival: string; sender: string; recipient?: string; reason?: string }>;
+    total: number;
+    source: string;
+  }> {
+    const r = await this.call<{
+      queue: Array<{ queue_id: string; size: number; arrival: string; sender: string; recipient?: string; reason?: string }>;
+      total: number;
+      source: string;
+    }>('mail.queue_list', {});
+    return r.result;
+  }
+
+  async mailQueueFlush(queueId?: string): Promise<{ status: string; queue_id?: string }> {
+    const r = await this.call<{ status: string; queue_id?: string }>('mail.queue_flush', queueId ? { queue_id: queueId } : {});
+    return r.result;
+  }
+
+  async mailQueueRetry(messageId: string): Promise<{ status: string; message_id: string }> {
+    const r = await this.call<{ status: string; message_id: string }>('mail.queue_retry', { message_id: messageId });
+    return r.result;
+  }
+
   /** Exposed for tests: the exact bytes that were signed. */
   static signatureInput(
     method: string,

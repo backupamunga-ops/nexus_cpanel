@@ -23,6 +23,8 @@ function harness(opts: {
   body?: Record<string, unknown>;
   query?: Record<string, unknown>;
   domainRow?: { hosting_account_id: string } | null;
+  dnsZoneRow?: { hosting_account_id: string } | null;
+  mailDomainRow?: { hosting_account_id: string } | null;
 }) {
   const prisma = {
     user: {
@@ -43,6 +45,9 @@ function harness(opts: {
     redirect: { findFirst: jest.fn().mockResolvedValue(null) },
     sshKey: { findFirst: jest.fn().mockResolvedValue(null) },
     certificate: { findFirst: jest.fn().mockResolvedValue(null) },
+    dnZone: { findFirst: jest.fn().mockResolvedValue(opts.dnsZoneRow === undefined ? null : opts.dnsZoneRow) },
+    mailDomain: { findFirst: jest.fn().mockResolvedValue(opts.mailDomainRow === undefined ? null : opts.mailDomainRow) },
+    mailboxe: { findFirst: jest.fn().mockResolvedValue(null) },
   };
   const reflector = {
     getAllAndOverride: jest.fn((_key: string) => {
@@ -215,6 +220,26 @@ describe('PermissionsGuard — hosting-scoped resources (site:*, P3)', () => {
   it('unknown resource id → 404 (existence not enumerable)', async () => {
     const { guard, ctx } = harness({ permission: 'site:read', params: { id: DOMAIN_ID } });
     await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException);
+  });
+
+  it('B06/B07 fix: dns zone ids resolve through the FK chain for owners', async () => {
+    const { guard, ctx } = harness({
+      permission: 'dns:read',
+      params: { id: DOMAIN_ID },
+      dnsZoneRow: { hosting_account_id: ACC },
+      accessRole: 'owner',
+    });
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+  });
+
+  it('B07: mail domain ids resolve through the FK chain for owners', async () => {
+    const { guard, ctx } = harness({
+      permission: 'mail:read',
+      params: { id: DOMAIN_ID },
+      mailDomainRow: { hosting_account_id: ACC },
+      accessRole: 'owner',
+    });
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
   });
 
   it('resource exists but caller has no access row → 404, not 403 (API spec §3.2)', async () => {

@@ -244,6 +244,14 @@ CREATE TABLE mail_aliases (
   deleted_at          timestamptz
 );
 
+CREATE TABLE mail_domain_dkim (
+  id                  uuid PRIMARY KEY DEFAULT uuid_generate_v7(),
+  mail_domain_id      uuid NOT NULL UNIQUE REFERENCES mail_domains(id) ON DELETE CASCADE,
+  selector            text NOT NULL,
+  rotated_at          timestamptz,
+  created_at          timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE autoresponders (
   id                  uuid PRIMARY KEY DEFAULT uuid_generate_v7(),
   mailbox_id          uuid NOT NULL REFERENCES mailboxes(id) ON DELETE CASCADE,
