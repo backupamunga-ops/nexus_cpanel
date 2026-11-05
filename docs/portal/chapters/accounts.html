@@ -74,14 +74,51 @@
           retained.</li>
     </ul>
 
-    <span class="badge warn">upcoming in P2</span>
-    <h2>Access sharing &amp; resellers</h2>
+    <span class="badge ok">live in P2</span>
+    <h2>Access sharing (delegation)</h2>
+    <p>
+      An account can be administered by more than one panel user — without
+      sharing anyone's login. Sharing manages the exact
+      <code>user_hosting_account_access</code> rows the permission guard
+      enforces on every account route, so a granted role takes effect
+      immediately and everywhere (list, read, suspend, quotas, usage).
+    </p>
     <ul>
-      <li>Access sharing: delegate account administration to other panel
-          users without sharing your login (the permission machinery —
-          <code>user_hosting_account_access</code> roles — is already
-          enforced on every account route).</li>
-      <li>Resellers with nesting, branding and session isolation.</li>
+      <li><strong>Roles</strong> — <code>owner</code> (full control, exactly
+          one per account, cannot be granted or revoked through the sharing
+          API — ownership transfer is a separate, future flow),
+          <code>admin</code> (everything except deletion and except
+          ownership), <code>member</code> and <code>readonly</code> (view
+          only). The role → permission matrix lives in one place in the
+          control plane and is unit-tested.</li>
+      <li><strong>Who may delegate</strong> — the owner, admins, and server
+          admins, via the <code>account:share</code> permission. Members and
+          readonly users can never pull in more people (no transitive trust
+          escalation).</li>
+      <li><strong>Grant</strong> — <code>POST /accounts/{id}/shares</code>
+          with <code>{"email": …, "role": …}</code>. Fail-closed validation:
+          the user must exist and be active (unknown, deactivated and deleted
+          users all get the SAME 404 — no existence oracle), duplicate active
+          grants get 409 (revoke first, then re-grant to change a role), and
+          the <code>owner</code> role is rejected outright. Your identity is
+          recorded as the grantor.</li>
+      <li><strong>Revoke</strong> — <code>DELETE
+          /accounts/{id}/shares/{shareId}</code> soft-revokes the row
+          (history kept; a fresh grant creates a NEW row). Misses are a
+          uniform 404 whether the id is unknown, already revoked, or belongs
+          to a different account.</li>
+      <li><strong>Audited</strong> — <code>account.share.grant</code> and
+          <code>account.share.revoke</code> are hash-chained into the audit
+          log in the same transaction as the row write.</li>
+      <li><strong>In the UI</strong> — every account card has a
+          <strong>Sharing</strong> panel: the active rows, who granted them,
+          and the grant form (shown only when your role may delegate).</li>
+    </ul>
+
+    <span class="badge warn">upcoming in P2</span>
+    <h2>Resellers</h2>
+    <ul>
+      <li>Resellers with nesting, branding and session isolation (C14).</li>
     </ul>
 
     <h2>Permission model</h2>
@@ -89,9 +126,12 @@
       Every accounts endpoint declares the permission it requires
       (<code>account:list</code>, <code>account:create</code>,
       <code>account:suspend</code>, <code>account:resume</code>,
-      <code>account:delete</code>, <code>account:read</code>) and the server
-      enforces it on every request — the UI hides what your role cannot do,
-      but the API is the real boundary.
+      <code>account:delete</code>, <code>account:read</code>,
+      <code>account:share</code>) and the server enforces it on every
+      request — the UI hides what your role cannot do, but the API is the
+      real boundary. Account-scoped permissions resolve from your role in
+      the account's access rows; <code>account:list</code> admits every
+      authenticated user but the service narrows rows to your grants.
     </p>
 
     <div class="pager">
