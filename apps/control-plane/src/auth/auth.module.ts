@@ -1,12 +1,14 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
+import { AuthService, PasswordService } from './auth.service';
 import { JwtService } from './jwt.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { PermissionsGuard } from './permissions.guard';
 import { ApiTokensService } from './api-tokens.service';
 import { TokensController } from './api-tokens.controller';
+import { TwoFactorService } from './two-factor.service';
+import { SecretBox } from './secret-box';
 import { AuditModule } from '../audit/audit.module';
 
 /**
@@ -21,12 +23,15 @@ import { AuditModule } from '../audit/audit.module';
   providers: [
     AuthService,
     ApiTokensService,
+    TwoFactorService,
+    PasswordService,
+    SecretBox,
     // Factory: JwtService takes an optional plain-string test seam that Nest
     // cannot reflect-inject; production reads AUTH_JWT_SECRET from env.
     { provide: JwtService, useFactory: () => new JwtService() },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
   ],
-  exports: [AuthService, JwtService, ApiTokensService],
+  exports: [AuthService, JwtService, ApiTokensService, TwoFactorService, SecretBox],
 })
 export class AuthModule {}

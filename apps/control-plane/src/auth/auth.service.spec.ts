@@ -4,7 +4,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { InMemoryAuditService } from '../audit/audit.service';
 import { ARGON2ID_PARAMS, AuthService, PasswordService } from './auth.service';
 import { JwtService } from './jwt.service';
+import { SecretBox } from './secret-box';
+import { TwoFactorService } from './two-factor.service';
 import { hashRefreshToken } from './refresh-token';
+import { totpAt, generateTotpSecret } from './totp';
 
 /* ─────────────────────────── C1 — password hashing ─────────────────────────── */
 
@@ -126,9 +129,14 @@ async function makeAuth(user: object | null) {
   };
   const audit = new InMemoryAuditService();
   const jwt = new JwtService('unit-test-secret-0123456789abcdefghijklmnop');
-  const auth = new AuthService(prisma as unknown as PrismaService, jwt, audit);
+  // 2FA with a test-key SecretBox + the same prisma mock (user rows flow
+  // through consumeLoginCode for enrolled users).
+  const box = new SecretBox(crypto.randomBytes(32));
+  const hasher = new PasswordService();
+  const twoFactor = new TwoFactorService(prisma as unknown as PrismaService, box, hasher, audit);
+  const auth = new AuthService(prisma as unknown as PrismaService, jwt, audit, twoFactor);
   await auth.whenBootstrapSeeded();
-  return { auth, prisma, audit, jwt };
+  return { auth, prisma, audit, jwt, box, twoFactor };
 }
 
 describe('AuthService (C3 login + sessions)', () => {
@@ -217,9 +225,52 @@ describe('AuthService (C3 login + sessions)', () => {
     await expect(auth2.login(EMAIL, PASSWORD, {})).rejects.toThrow(UnauthorizedException);
   });
 
-  it('refuses TOTP-enrolled users instead of silently skipping the second factor (C2)', async () => {
-    const { auth } = await makeAuth(fakeUser({ password_hash: passwordHash, totp_enabled_at: new Date() }));
-    await expect(auth.login(EMAIL, PASSWORD, { totp: '000000' })).rejects.toThrow('totp required');
+  it('refuses TOTP-enrolled users without a code (distinct challenge reason, C2)', async () => {
+    const { auth, audit } = await makeAuth(fakeUser({ password_hash: passwordHash, totp_enabled_at: new Date() }));
+    await expect(auth.login(EMAIL, PASSWORD, {})).rejects.toThrow('totp code required');
+    const entry = audit.list().at(-1);
+    expect(entry?.parameters).toMatchObject({ reason: 'totp_missing' });
+  });
+
+  it('rejects a WRONG TOTP code as a failed attempt (lockout protects the second factor)', async () => {
+    const { auth, prisma, audit } = await makeAuth(
+      fakeUser({ password_hash: passwordHash, totp_enabled_at: new Date() }),
+    );
+    await expect(auth.login(EMAIL, PASSWORD, { totp: '000000' })).rejects.toThrow('invalid credentials');
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ failed_login_count: 1 }) }),
+    );
+    expect(audit.list().at(-1)?.parameters).toMatchObject({ reason: 'totp_invalid' });
+  });
+
+  it('accepts a valid TOTP code, tags the audit entry, and persists the consumed step', async () => {
+    const secret = generateTotpSecret();
+    const box = new SecretBox(crypto.randomBytes(32));
+    const enc = box.encrypt(Buffer.from(secret, 'utf8'));
+    const nowUnix = Math.floor(Date.now() / 1000);
+    const code = totpAt(secret, nowUnix)!;
+    const { auth, prisma, audit } = await makeAuth(
+      fakeUser({
+        password_hash: passwordHash,
+        totp_enabled_at: new Date(),
+        totp_secret_enc: enc,
+      }),
+    );
+    // Wire the harness box into the service under test.
+    (auth as unknown as { twoFactor: TwoFactorService }).twoFactor = new TwoFactorService(
+      prisma as unknown as PrismaService,
+      box,
+      new PasswordService(),
+      audit,
+    );
+
+    const res = await auth.login(EMAIL, PASSWORD, { totp: code });
+    expect(res.access_token).toBeTruthy();
+    const entry = audit.list().find((e) => e.outcome === 'success');
+    expect(entry?.parameters).toMatchObject({ second_factor: 'totp' });
+    // The consumed step rides the same update as the login bookkeeping.
+    const updateData = prisma.user.update.mock.calls[0][0].data;
+    expect(updateData.preferences.totp_last_step).toBe(Math.floor(nowUnix / 30));
   });
 
   it('refuses inactive and soft-deleted users', async () => {

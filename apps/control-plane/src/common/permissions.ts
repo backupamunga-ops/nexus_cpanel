@@ -52,6 +52,7 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
   'audit:list',
   'audit:read',
   'audit:verify',
+  'auth:2fa',
   'auth:logout',
   'auth:tokens',
 ];
@@ -83,6 +84,7 @@ export const ACCOUNT_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
  * themself. No more than strictly necessary.
  */
 export const SELF_PERMISSIONS: ReadonlySet<string> = new Set([
+  'auth:2fa',
   'auth:logout',
   'auth:tokens',
 ]);

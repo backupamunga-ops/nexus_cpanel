@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditAppender, InjectAudit } from '../audit/audit.service';
 import { JwtService } from './jwt.service';
+import { TwoFactorService } from './two-factor.service';
 import { hashRefreshToken, mintRefreshToken, refreshSessionId } from './refresh-token';
 import * as crypto from 'node:crypto';
 import { isIP } from 'node:net';
@@ -86,6 +87,10 @@ function timingSafeEqual(a: Buffer, b: Buffer): boolean {
  * - Lockout: `failed_login_count` ≥ 5 ⇒ `locked_until` = now + 15 min.
  * - Unknown-email logins burn a real Argon2id verify against a decoy hash so
  *   response timing does not leak account existence (no user oracle).
+ * - 2FA (C2): totp-enabled users MUST present a valid TOTP or backup code;
+ *   wrong second factors count as failed login attempts (lockout applies).
+ *   The consumed TOTP timestep is persisted atomically with the login's own
+ *   user.update — no replay window.
  */
 
 export interface LoginContext {
@@ -120,6 +125,7 @@ export class AuthService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     @InjectAudit() private readonly audit: AuditAppender,
+    private readonly twoFactor: TwoFactorService,
   ) {
     const email = process.env.DEV_ADMIN_EMAIL;
     const password = process.env.DEV_ADMIN_PASSWORD;
@@ -190,10 +196,35 @@ export class AuthService implements OnModuleInit {
       });
       throw new UnauthorizedException('invalid credentials');
     }
+
+    // 2FA challenge (C2): never silently bypass an enrolled factor. A missing
+    // code is a distinct audit reason (UI shows the challenge); a WRONG code
+    // counts as a failed attempt so lockout protects the second factor too.
+    let secondFactor: 'totp' | 'backup_code' | undefined;
+    let totpStep: number | undefined;
     if (user!.totp_enabled_at) {
-      // 2FA (C2) lands in P2; never silently bypass an enrolled factor.
-      await this.audit.append({ operation: 'auth.login', parameters: { email: normalized, reason: 'totp_required' }, outcome: 'failure', actorUserId: user!.id });
-      throw new UnauthorizedException('totp required');
+      if (!ctx.totp || typeof ctx.totp !== 'string' || ctx.totp.trim().length === 0) {
+        await this.audit.append({
+          operation: 'auth.login',
+          parameters: { email: normalized, reason: 'totp_missing' },
+          outcome: 'failure',
+          actorUserId: user!.id,
+        });
+        throw new UnauthorizedException('totp code required');
+      }
+      const consumed = await this.twoFactor.consumeLoginCode(user!, ctx.totp);
+      if (!consumed.ok) {
+        await this.registerFailedAttempt(user!);
+        await this.audit.append({
+          operation: 'auth.login',
+          parameters: { email: normalized, reason: consumed.reason },
+          outcome: 'failure',
+          actorUserId: user!.id,
+        });
+        throw new UnauthorizedException('invalid credentials');
+      }
+      secondFactor = consumed.method;
+      totpStep = consumed.totpStep;
     }
 
     await this.prisma.user.update({
@@ -203,6 +234,11 @@ export class AuthService implements OnModuleInit {
         locked_until: null,
         last_login_at: new Date(),
         last_login_ip: sanitizeIp(ctx.ip),
+        // Persist the consumed TOTP timestep in the SAME write as the login
+        // bookkeeping — replay of that step is impossible after this commits.
+        ...(totpStep !== undefined
+          ? { preferences: this.twoFactor.preferencesWithStep(user!.preferences, totpStep) }
+          : {}),
       },
     });
 
@@ -220,7 +256,16 @@ export class AuthService implements OnModuleInit {
       },
     });
 
-    await this.audit.append({ operation: 'auth.login', parameters: { email: normalized, session_id: session.id }, outcome: 'success', actorUserId: user!.id });
+    await this.audit.append({
+      operation: 'auth.login',
+      parameters: {
+        email: normalized,
+        session_id: session.id,
+        ...(secondFactor ? { second_factor: secondFactor } : {}),
+      },
+      outcome: 'success',
+      actorUserId: user!.id,
+    });
     this.logger.log(`login ok (${normalized}, session ${session.id})`);
     return this.tokenPair(user!, minted.token, session.id, ctx);
   }

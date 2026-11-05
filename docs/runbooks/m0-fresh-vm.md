@@ -53,6 +53,11 @@ Edit `.env`:
   production).
 - `CP_SIGNING_KEY_PATH` — leave the default
   `./dev-keys/control-plane-signing.key`; step 3 creates that file.
+- `CP_SECRETS_KEY_PATH` — leave the default `./dev-keys/secrets.key`; step 3
+  creates that file too. It encrypts 2FA secrets and backup codes at rest
+  (C9 seam). Without it the panel boots fine, but `/auth/2fa/*` returns 503.
+- `AUTH_JWT_SECRET` — set a ≥ 32-char random string so issued sessions
+  survive control-plane restarts (absent = ephemeral per-boot secret).
 
 The control plane reads `process.env` directly (no dotenv shim), so export
 the file into your shell before starting it:
@@ -69,7 +74,9 @@ npm run keys:generate --workspace apps/control-plane
 ```
 
 This writes `dev-keys/control-plane-signing.key` (mode 0600, used by the
-control plane via `CP_SIGNING_KEY_PATH`) and
+control plane via `CP_SIGNING_KEY_PATH`),
+`dev-keys/secrets.key` (base64 master key for the SecretBox, via
+`CP_SECRETS_KEY_PATH`; existing keys are never overwritten) and
 `dev-keys/control-plane-signing.pub` (raw base64, given to the agent).
 **Never commit `dev-keys/`** — it is already gitignored.
 
