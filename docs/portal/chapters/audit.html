@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Audit log &amp; chain · NexusPanel Docs</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="portal">
+  <aside>
+    <div class="brand">NexusPanel Docs</div>
+    <div class="tag">v0.1.0-m0 · preview</div>
+    <div class="group">Start here</div>
+    <nav>
+      <a href="getting-started.html">Getting started</a>
+      <a href="first-account.html">Your first hosting account</a>
+    </nav>
+    <div class="group">Admin guide</div>
+    <nav>
+      <a href="accounts.html">Accounts &amp; packages</a>
+      <a href="audit.html" class="active">Audit log &amp; chain</a>
+    </nav>
+    <div class="back"><a href="../index.html">← Documentation home</a></div>
+  </aside>
+  <main>
+    <h1>Audit log &amp; chain</h1>
+    <p class="lede">
+      Every privileged operation — successful or failed — is recorded in a
+      tamper-evident hash chain. If anyone edits a historical entry, the
+      chain verification fails at exactly that entry.
+    </p>
+
+    <h2>How the chain works</h2>
+    <p>
+      Each audit entry contains the operation name, its parameters, the
+      outcome (<code>success</code> or <code>failure</code>), the acting user,
+      and a timestamp. Before an entry is stored, a SHA-256 hash is computed
+      over the entry <em>plus the hash of the previous entry</em>. The hashes
+      therefore form a chain back to the first entry ever written:
+    </p>
+    <pre><code>entryₙ.hash = SHA-256(entryₙ.fields ‖ entryₙ₋₁.hash)</code></pre>
+    <p>
+      Appends are serialized by a database-level advisory lock inside one
+      transaction, so even concurrent writes can never fork the chain. The
+      current head is kept in a single row that verification re-walks.
+    </p>
+
+    <h2>What gets audited in M0</h2>
+    <table>
+      <tr><th>Operation</th><th>Audited outcomes</th></tr>
+      <tr><td><code>account.create</code></td><td>success (with the created account), failure (e.g. agent unreachable)</td></tr>
+      <tr><td><code>isolation.provision</code></td><td>failure (slice could not be created) — success is covered by the create entry</td></tr>
+      <tr><td><code>account.suspend</code> / <code>account.resume</code></td><td>success and failure</td></tr>
+      <tr><td><code>account.delete</code></td><td>success and failure</td></tr>
+      <tr><td><code>auth.login</code></td><td>success and failure (locked out, bad credentials, TOTP pending)</td></tr>
+      <tr><td><code>auth.refresh</code></td><td>failure (e.g. session fingerprint mismatch)</td></tr>
+    </table>
+
+    <h2>Verify the chain</h2>
+    <p>
+      Verification re-computes every hash in the chain and compares it to the
+      stored head. From the UI (Audit page) or the API:
+    </p>
+    <pre><code>curl -X POST https://panel.example.test/api/v1/audit/verify \
+  -H "Authorization: Bearer $TOKEN"</code></pre>
+    <p>
+      A healthy chain answers <code>{"verified": true, …}</code>. If any
+      historical row was changed — even a single character in a parameter —
+      the response reports <code>verified: false</code> and identifies the
+      first entry where the chain breaks. Because each entry's hash depends on
+      its predecessor, appending fake entries afterwards also fails: the
+      rewritten tail will not match the stored head.
+    </p>
+    <img class="screenshot" src="../static/screenshots/m0/03-audit.png" alt="Audit log with chain verification">
+
+    <div class="callout">
+      The agent keeps its own offline append-only log (WAL) when the control
+      plane is unreachable and drains it on reconnect — privileged actions
+      are audited even during outages.
+    </div>
+
+    <h2>Who can read it</h2>
+    <p>
+      Audit endpoints require the <code>audit:read</code> /
+      <code>audit:verify</code> permissions. The application only ever
+      appends: no code path updates or deletes audit rows. Database-role-level
+      enforcement (REVOKing UPDATE/DELETE from the panel's DB role) is part of
+      the installer hardening work that lands with the production installer.
+    </p>
+
+    <div class="pager">
+      <a href="first-account.html">← Your first hosting account</a>
+      <a href="../index.html">Documentation home →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

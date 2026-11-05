@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your first hosting account · NexusPanel Docs</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="portal">
+  <aside>
+    <div class="brand">NexusPanel Docs</div>
+    <div class="tag">v0.1.0-m0 · preview</div>
+    <div class="group">Start here</div>
+    <nav>
+      <a href="getting-started.html">Getting started</a>
+      <a href="first-account.html" class="active">Your first hosting account</a>
+    </nav>
+    <div class="group">Admin guide</div>
+    <nav>
+      <a href="accounts.html">Accounts &amp; packages</a>
+      <a href="audit.html">Audit log &amp; chain</a>
+    </nav>
+    <div class="back"><a href="../index.html">← Documentation home</a></div>
+  </aside>
+  <main>
+    <h1>Your first hosting account</h1>
+    <p class="lede">
+      A hosting account is an isolated OS identity on a managed node. You
+      create it from the UI; the panel never touches the server itself — a
+      signed command tells the privileged agent to do the OS work.
+    </p>
+
+    <h2>Create the account</h2>
+    <ol>
+      <li>Open <strong>Accounts</strong> and click <strong>Create account</strong>.</li>
+      <li>Enter a username. The policy is strict by design:
+          <code>^[a-z][a-z0-9-]{0,31}$</code> — lowercase letters, digits and
+          hyphens, starting with a letter, at most 32 characters. Reserved
+          system names (<code>root</code>, <code>www-data</code>,
+          <code>postgres</code>, <code>nexusagent</code>, …) are rejected
+          before anything reaches the server.</li>
+      <li>Submit. The account appears in the list with status
+          <strong>active</strong> and its assigned UID.</li>
+    </ol>
+    <img class="screenshot" src="../static/screenshots/m0/02-accounts.png" alt="Accounts screen with live usage">
+
+    <h2>What happens under the hood</h2>
+    <p>
+      Submitting the form triggers a chain of verifiable steps — none of them
+      optional, all of them audited:
+    </p>
+    <ol>
+      <li>The control plane validates your permission
+          (<code>account:create</code>) and the username policy.</li>
+      <li>It sends <code>account.create</code> and
+          <code>isolation.provision</code> as JSON-RPC commands
+          <strong>signed with the control plane's Ed25519 key</strong> over the
+          agent's Unix socket. Each command carries a 30-second validity
+          window; the agent rejects unsigned, tampered or expired commands.</li>
+      <li>The agent verifies the signature, creates the Linux user with a
+          fixed binary invocation (<code>useradd</code>, home directory, no
+          login shell) — never a shell script — and creates the account's
+          <strong>cgroup v2 slice</strong>
+          (<code>/sys/fs/cgroup/nexuspanel/&lt;username&gt;</code>) used for
+          resource accounting and, later, limits.</li>
+      <li>The agent returns the assigned UID/GID and home directory; the
+          control plane stores them with the account row.</li>
+      <li>Control plane and agent each append a hash-chained audit entry for
+          the operation.</li>
+    </ol>
+
+    <h2>Live usage</h2>
+    <p>
+      The usage card on the account list is not a page reload — the server
+      samples the account's cgroup counters (CPU time, memory, process count)
+      through the agent's read-only <code>account.usage</code> command and
+      pushes updates to your browser over an authenticated WebSocket
+      (<code>/events</code>). While your session is open, numbers move on
+      their own.
+    </p>
+
+    <h2>Suspend, resume, delete</h2>
+    <table>
+      <tr><th>Action</th><th>What the agent does</th><th>What you see</th></tr>
+      <tr>
+        <td>Suspend</td>
+        <td>Disables password login for the OS user</td>
+        <td>Status <strong>suspended</strong>, action audited</td>
+      </tr>
+      <tr>
+        <td>Resume</td>
+        <td>Re-enables password login</td>
+        <td>Status <strong>active</strong>, action audited</td>
+      </tr>
+      <tr>
+        <td>Delete</td>
+        <td>Removes the OS user (files preserved), tears down the cgroup slice</td>
+        <td>Row disappears from the list (soft-deleted), action audited</td>
+      </tr>
+    </table>
+    <div class="callout warn">
+      If the agent is unreachable, account mutations fail closed: the panel
+      shows an error and the failure is written to the audit chain. Reads
+      (usage) keep working from the agent's local state.
+    </div>
+
+    <div class="pager">
+      <a href="getting-started.html">← Getting started</a>
+      <a href="audit.html">Audit log &amp; chain →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Accounts &amp; packages · NexusPanel Docs</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="portal">
+  <aside>
+    <div class="brand">NexusPanel Docs</div>
+    <div class="tag">v0.1.0-m0 · preview</div>
+    <div class="group">Start here</div>
+    <nav>
+      <a href="getting-started.html">Getting started</a>
+      <a href="first-account.html">Your first hosting account</a>
+    </nav>
+    <div class="group">Admin guide</div>
+    <nav>
+      <a href="accounts.html" class="active">Accounts &amp; packages</a>
+      <a href="audit.html">Audit log &amp; chain</a>
+    </nav>
+    <div class="back"><a href="../index.html">← Documentation home</a></div>
+  </aside>
+  <main>
+    <h1>Accounts &amp; packages</h1>
+    <p class="lede">
+      Hosting accounts are the tenants of a node. Packages define what an
+      account may consume. This page covers what works today (M0) and what
+      lands with the identity phase (P2).
+    </p>
+
+    <span class="badge ok">live in M0</span>
+    <h2>Accounts today</h2>
+    <ul>
+      <li><strong>List &amp; inspect</strong> — every account with status,
+          UID and home directory.</li>
+      <li><strong>Create</strong> — see
+          <a href="first-account.html">Your first hosting account</a> for the
+          full flow including what the agent does on the node.</li>
+      <li><strong>Suspend / resume / delete</strong> — each action maps to a
+          typed agent command and is hash-chained in the audit log.</li>
+      <li><strong>Live usage</strong> — CPU time, memory and process count
+          sampled from the account's cgroup slice and pushed over WebSocket.
+          Disk usage joins when the filesystem category lands (P3).</li>
+    </ul>
+
+    <span class="badge warn">P2</span>
+    <h2>Packages &amp; quota enforcement</h2>
+    <p>
+      In M0 every account is created on the bootstrap <em>Default</em>
+      package — a seam so the flow works before package management exists.
+      P2 brings the real thing:
+    </p>
+    <ul>
+      <li>Packages CRUD with quota JSON (disk, traffic, mailboxes, databases)
+          and feature flags (PHP versions, shell access).</li>
+      <li>Account lifecycle completion: <code>account.modify</code> (rename,
+          package change, shell), quota changes via
+          <code>account.quota</code> — both commands are already registered
+          on the agent and return a deliberate "not implemented until a later
+          milestone" error today.</li>
+      <li>Access sharing: delegate account administration to other panel
+          users without sharing your login.</li>
+      <li>Resellers with nesting, branding and session isolation.</li>
+    </ul>
+
+    <h2>Permission model</h2>
+    <p>
+      Every accounts endpoint declares the permission it requires
+      (<code>account:list</code>, <code>account:create</code>,
+      <code>account:suspend</code>, <code>account:resume</code>,
+      <code>account:delete</code>, <code>account:read</code>) and the server
+      enforces it on every request — the UI hides what your role cannot do,
+      but the API is the real boundary.
+    </p>
+
+    <div class="pager">
+      <a href="first-account.html">← Your first hosting account</a>
+      <a href="audit.html">Audit log &amp; chain →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

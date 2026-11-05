@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Getting started · NexusPanel Docs</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="portal">
+  <aside>
+    <div class="brand">NexusPanel Docs</div>
+    <div class="tag">v0.1.0-m0 · preview</div>
+    <div class="group">Start here</div>
+    <nav>
+      <a href="getting-started.html" class="active">Getting started</a>
+      <a href="first-account.html">Your first hosting account</a>
+    </nav>
+    <div class="group">Admin guide</div>
+    <nav>
+      <a href="accounts.html">Accounts &amp; packages</a>
+      <a href="audit.html">Audit log &amp; chain</a>
+    </nav>
+    <div class="back"><a href="../index.html">← Documentation home</a></div>
+  </aside>
+  <main>
+    <h1>Getting started</h1>
+    <p class="lede">
+      Log in to the panel, understand what the M0 preview does, and how your
+      credentials are protected.
+    </p>
+
+    <h2>What M0 is</h2>
+    <p>
+      The M0 preview proves one complete thread end to end: you log in, create
+      a hosting account, a signed command goes to the privileged node agent,
+      the agent creates the Linux user and its resource slice, the action is
+      written to a tamper-evident audit chain, and the UI shows the account's
+      live resource usage. Everything else — sites, mail, DNS, databases,
+      backups — arrives in later phases.
+    </p>
+
+    <h2>Log in</h2>
+    <ol>
+      <li>Open the panel URL your operator gave you (development default:
+          <code>http://localhost:5173</code>).</li>
+      <li>Enter your admin email and password.</li>
+      <li>On success you land on <strong>Accounts</strong>.</li>
+    </ol>
+    <img class="screenshot" src="../static/screenshots/m0/01-login.png" alt="NexusPanel login screen">
+
+    <div class="callout">
+      Two-factor authentication (TOTP) is planned for P2 — the database
+      columns already exist, enrollment UI lands with the identity phase.
+    </div>
+
+    <h2>How your session works</h2>
+    <ul>
+      <li><strong>Passwords</strong> are stored with Argon2id — a memory-hard
+          hash that is expensive to attack with GPUs. Plaintext passwords are
+          never stored or logged.</li>
+      <li><strong>Access tokens</strong> live for 15 minutes. The UI renews
+          them automatically in the background using a
+          <strong>refresh token that rotates on every use</strong> — a stolen
+          refresh token stops working the moment the real session renews.</li>
+      <li><strong>Lockout:</strong> after 5 consecutive failed logins the
+          account locks for 15 minutes. Failed logins are audited.</li>
+    </ul>
+
+    <h2>Running it yourself (operators)</h2>
+    <p>
+      The full bring-up — PostgreSQL, control plane, root agent, key
+      provisioning — is a copy-paste runbook:
+      <code>docs/runbooks/m0-fresh-vm.md</code> in the repository. The panel
+      control plane never runs as root and never touches the operating system
+      directly; every privileged operation is a signed command that the Go
+      agent verifies before executing.
+    </p>
+
+    <div class="pager">
+      <span></span>
+      <a href="first-account.html">Your first hosting account →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

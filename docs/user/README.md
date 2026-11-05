@@ -23,7 +23,7 @@ regenerated screenshots from the demo environment (gap G-08).
 | Chapter | Status |
 |---|---|
 | Getting started / setup wizard | Drafting at P0–P1 with the installer spec |
-| Accounts (M0) | Written with M0 screenshots in P1 |
+| Accounts (M0) | Written — portal chapters + audit/accounts/getting-started live (P1); screenshots regenerate via `e2e/screenshots.mjs` |
 | Everything else | Opens with its phase (see docs/plan/BUILD_PLAN.md §6) |
 
 ## Screenshot rig (from P1)
