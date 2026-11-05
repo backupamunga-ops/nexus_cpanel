@@ -57,6 +57,9 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
   'auth:logout',
   'auth:sessions',
   'auth:tokens',
+  'file:delete',
+  'file:read',
+  'file:write',
   'package:create',
   'package:delete',
   'package:list',
@@ -74,6 +77,8 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
   'site:list',
   'site:read',
   'site:update',
+  'ssh:manage',
+  'ssh:read',
 ];
 
 /**
@@ -84,7 +89,7 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
  * boundary. Visibility failures are 404, not 403 (API spec §3.2
  * anti-enumeration). Grows family by family as P3 resources land.
  */
-export const HOSTING_SCOPED_PREFIXES: readonly string[] = ['site:'];
+export const HOSTING_SCOPED_PREFIXES: readonly string[] = ['site:', 'file:', 'ssh:'];
 
 /**
  * Roles that may be granted through the sharing API (POST /accounts/{id}/shares).
@@ -121,6 +126,11 @@ export const ACCOUNT_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'site:create',
     'site:update',
     'site:delete',
+    'file:read',
+    'file:write',
+    'file:delete',
+    'ssh:read',
+    'ssh:manage',
   ],
   admin: [
     'account:read',
@@ -133,9 +143,14 @@ export const ACCOUNT_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'site:create',
     'site:update',
     'site:delete',
+    'file:read',
+    'file:write',
+    'file:delete',
+    'ssh:read',
+    'ssh:manage',
   ],
-  member: ['account:read', 'site:list', 'site:read'],
-  readonly: ['account:read', 'site:list', 'site:read'],
+  member: ['account:read', 'site:list', 'site:read', 'file:read'],
+  readonly: ['account:read', 'site:list', 'site:read', 'file:read'],
 };
 
 /**

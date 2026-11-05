@@ -291,6 +291,110 @@ export class AgentClientService {
     return r.result;
   }
 
+  // ---- P3: files (ADR-0008 filesystem content ops §4.3) --------------------
+
+  async filesystemList(username: string, path: string): Promise<{
+    path: string;
+    entries: Array<{ name: string; type: string; size_bytes: number; mode: string; modified_at: string }>;
+    total: number;
+  }> {
+    const r = await this.call<{
+      path: string;
+      entries: Array<{ name: string; type: string; size_bytes: number; mode: string; modified_at: string }>;
+      total: number;
+    }>('filesystem.list', { username, path });
+    return r.result;
+  }
+
+  async filesystemRead(
+    username: string,
+    path: string,
+  ): Promise<{ path: string; size_bytes: number; content_b64: string; truncated: boolean }> {
+    const r = await this.call<{
+      path: string;
+      size_bytes: number;
+      content_b64: string;
+      truncated: boolean;
+    }>('filesystem.read', { username, path });
+    return r.result;
+  }
+
+  async filesystemWrite(
+    username: string,
+    path: string,
+    content_b64: string,
+    opts: { mode?: number; overwrite?: boolean } = {},
+  ): Promise<{ path: string; written_bytes: number; overwritten: boolean; ownership: string }> {
+    const params: Record<string, unknown> = { username, path, content_b64 };
+    if (opts.mode !== undefined) params['mode'] = opts.mode;
+    if (opts.overwrite !== undefined) params['overwrite'] = opts.overwrite;
+    const r = await this.call<{
+      path: string;
+      written_bytes: number;
+      overwritten: boolean;
+      ownership: string;
+    }>('filesystem.write', params);
+    return r.result;
+  }
+
+  async filesystemMove(
+    username: string,
+    from: string,
+    to: string,
+    overwrite = false,
+  ): Promise<{ from: string; to: string }> {
+    const r = await this.call<{ from: string; to: string }>('filesystem.move', {
+      username,
+      from,
+      to,
+      overwrite,
+    });
+    return r.result;
+  }
+
+  async filesystemDelete(
+    username: string,
+    path: string,
+    toTrash = true,
+  ): Promise<{ path: string; trash_path: string; size_bytes: number; purged: boolean }> {
+    const r = await this.call<{
+      path: string;
+      trash_path: string;
+      size_bytes: number;
+      purged: boolean;
+    }>('filesystem.delete', { username, path, to_trash: toTrash });
+    return r.result;
+  }
+
+  async filesystemChmod(
+    username: string,
+    path: string,
+    mode: number,
+  ): Promise<{ path: string; mode: string }> {
+    const r = await this.call<{ path: string; mode: string }>('filesystem.chmod', {
+      username,
+      path,
+      mode,
+    });
+    return r.result;
+  }
+
+  async filesystemUsage(username: string): Promise<{ bytes: number; inodes: number; partial: boolean }> {
+    const r = await this.call<{ bytes: number; inodes: number; partial: boolean }>(
+      'filesystem.usage',
+      { username },
+    );
+    return r.result;
+  }
+
+  async trashPurge(username: string, beforeDate: string): Promise<{ removed: string[] }> {
+    const r = await this.call<{ removed: string[] }>('filesystem.trash_purge', {
+      username,
+      before_date: beforeDate,
+    });
+    return r.result;
+  }
+
   /** Exposed for tests: the exact bytes that were signed. */
   static signatureInput(
     method: string,
