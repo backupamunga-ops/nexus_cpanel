@@ -27,6 +27,8 @@ export const WEB_KNOWN_PERMISSIONS: readonly string[] = [
   'auth:tokens',
   'file:delete',
   'file:read',
+  'config:manage',
+  'config:read',
   'file:write',
   'package:create',
   'php:manage',

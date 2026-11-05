@@ -58,6 +58,22 @@ interface SslCertDto {
   auto_renew: boolean;
 }
 
+interface ConfigVersion {
+  id: string;
+  version: number;
+  is_active: boolean;
+  size_bytes: number;
+  created_at: string;
+}
+
+interface DriftEvent {
+  id: string;
+  target_type: string;
+  target_id: string;
+  detected_at: string;
+  resolved_at: string | null;
+}
+
 interface PhpView {
   domain_id: string;
   php_version: string | null;
@@ -89,6 +105,8 @@ export default function SitesPage() {
   const [phpMemory, setPhpMemory] = useState('128M');
   const [phpUpload, setPhpUpload] = useState('32M');
   const [phpMaxExec, setPhpMaxExec] = useState('30');
+  const [versions, setVersions] = useState<ConfigVersion[]>([]);
+  const [drift, setDrift] = useState<DriftEvent[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -154,6 +172,10 @@ export default function SitesPage() {
       setPhpMemory((cfg['memory_limit'] as string) ?? '128M');
       setPhpUpload((cfg['upload_max_filesize'] as string) ?? '32M');
       setPhpMaxExec(String((cfg['max_execution_time'] as number) ?? 30));
+      const cv = await api<{ data: ConfigVersion[] }>(`/config/nginx_vhost/${d.id}/versions`);
+      setVersions(cv.data ?? []);
+      const dv = await api<{ data: DriftEvent[] }>('/config/drift');
+      setDrift((dv.data ?? []).filter((e) => e.target_id === d.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'failed to load site detail');
     }
@@ -712,10 +734,87 @@ export default function SitesPage() {
                   )}
                   {php?.pool && (
                     <span style={{ fontSize: 12, color: 'var(--np-muted)' }}>
-                      active: php {php.pool.version} · v{''}
+                      active: php {php.pool.version}
                     </span>
                   )}
                 </div>
+              </div>
+
+              <div className="np-card">
+                <h3 style={{ marginTop: 0 }}>Config history &amp; drift</h3>
+                <p style={{ color: 'var(--np-muted)', fontSize: 13, marginTop: 0 }}>
+                  Every applied vhost is versioned. Rollback re-applies an old
+                  version&apos;s bytes as a NEW version (history is append-only);
+                  drift is reported, never silently reconciled.
+                </p>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                  <button
+                    className="np-button"
+                    disabled={busy}
+                    onClick={() =>
+                      void mutate(
+                        () => api(`/config/nginx_vhost/${selected.id}/drift-check`, { method: 'POST' }),
+                        'drift check complete — mismatches appear below.',
+                      )
+                    }
+                  >
+                    Check drift now
+                  </button>
+                </div>
+                {drift.length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    {drift.map((e) => (
+                      <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                        <span style={{ fontSize: 12, color: 'var(--np-danger)' }}>
+                          drift detected {new Date(e.detected_at).toLocaleString()}
+                        </span>
+                        <span style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            className="np-button"
+                            style={{ padding: '2px 8px', fontSize: 11 }}
+                            disabled={busy}
+                            onClick={() =>
+                              void mutate(
+                                () => api(`/config/drift/${e.id}/resolve`, { method: 'POST', body: JSON.stringify({ resolution: 'investigated' }) }),
+                                'drift event marked investigated.',
+                              )
+                            }
+                          >
+                            Mark investigated
+                          </button>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {versions.length === 0 && <p style={{ color: 'var(--np-muted)', fontSize: 13 }}>No versions yet.</p>}
+                {versions.map((v) => (
+                  <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 13 }}>
+                      v{v.version}
+                      {v.is_active && <span className="np-badge">active</span>}{' '}
+                      <span style={{ color: 'var(--np-muted)' }}>
+                        {v.size_bytes} B · {new Date(v.created_at).toLocaleString()}
+                      </span>
+                    </span>
+                    {!v.is_active && (
+                      <button
+                        className="np-button"
+                        style={{ padding: '2px 8px', fontSize: 11 }}
+                        disabled={busy}
+                        onClick={() => {
+                          if (!window.confirm(`Roll back to v${v.version}? Its bytes are re-applied as a new version.`)) return;
+                          void mutate(
+                            () => api(`/config/nginx_vhost/${selected.id}/rollback/${v.id}`, { method: 'POST' }),
+                            `rolled back to v${v.version} (applied as a new version).`,
+                          );
+                        }}
+                      >
+                        Roll back
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
             </>
           )}

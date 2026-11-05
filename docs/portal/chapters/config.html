@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Configuration engine · NexusPanel Docs</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="portal">
+  <aside>
+    <div class="brand">NexusPanel Docs</div>
+    <div class="tag">v0.1.0-m0 · preview</div>
+    <div class="group">Security &amp; admin</div>
+    <nav>
+      <a href="server-settings.html">Server settings</a>
+      <a class="active" href="config.html">Configuration engine</a>
+      <a href="security.html">Security model</a>
+      <a href="audit.html">Audit log &amp; chain</a>
+    </nav>
+    <div class="back"><a href="../index.html">← Documentation home</a></div>
+  </aside>
+  <main>
+    <h1>Configuration engine</h1>
+    <p class="lede">
+      Every serving change the panel makes — vhosts, PHP pools — has been
+      versioned since the first apply. The configuration engine is the part
+      you can see: the version timeline on each site, one-click rollback,
+      and drift detection that reports what it finds and never silently
+      "fixes" it.
+    </p>
+
+    <h2>The timeline <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Open a site in <strong>Sites</strong> and scroll to <em>Config history
+      &amp; drift</em>. Each applied configuration is a version: who rendered
+      it, when, and its exact size. History is <strong>append-only</strong> —
+      nothing is ever edited or deleted, including PHP pool files, which are
+      versioned the same way vhosts are.
+    </p>
+
+    <h2>Rollback that writes forward <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Rolling back to an old version does not rewind history — it re-applies
+      that version's stored bytes as a <em>new</em> version through the same
+      health-gated pipeline as any other change (staging write → atomic swap
+      → health check → auto-rollback). The whole operation is recorded as a
+      <strong>transaction</strong>: <code>pending</code> while the apply
+      runs, then <code>applied</code> or <code>failed</code> with the error.
+      A failed rollback leaves the previous configuration serving — a
+      transaction row exists for the attempt either way.
+    </p>
+    <div class="callout">
+      PHP pool rollback is an honest gap for now: the agent addresses pool
+      files per PHP version, and the pool-target apply path lands with its
+      own amendment. The API refuses with that exact explanation instead of
+      pretending.
+    </div>
+
+    <h2>Drift: reported, never reconciled <span class="badge ok">live in the panel</span></h2>
+    <p>
+      <em>Check drift now</em> hashes the file on the node against the active
+      version's bytes. A mismatch creates a <strong>drift event</strong> —
+      visible in the site's card, resolvable as
+      <code>reconciled</code>, <code>investigated</code> or
+      <code>ignored</code> once a human has decided what happened. The agent
+      does not overwrite drifted files on its own; that is the
+      constitutional rule (§P.7): the panel reports, the admin chooses.
+    </p>
+    <p>
+      A file that vanished from the node is drift too
+      (<code>exists: false</code>) — the classic "I cleaned up
+      /etc/nginx/conf.d by hand" incident becomes a visible event instead of
+      a mystery outage at the next reload.
+    </p>
+
+    <h2>The apply pipeline, everywhere</h2>
+    <p>
+      Everything that lands on the node goes through the same primitive:
+      staging write, atomic rename, health gate, byte-for-byte rollback on
+      failure. vhosts, pool files and certificates share it; the timeline,
+      the transactions and the drift checks are the audit surface on top.
+    </p>
+
+    <h2>What is not live yet</h2>
+    <ul>
+      <li><strong>Periodic drift checks</strong> — drift runs on demand
+        today; the 15-minute scheduled sweep arrives with the scheduler
+        infrastructure (the on-demand path and the event ledger are the same
+        either way).</li>
+      <li><strong>Pool-target drift and rollback</strong> — see the callout
+        above.</li>
+      <li><strong>config.render as an agent command</strong> — deliberately
+        absent: rendering is deterministic and panel-owned; a second renderer
+        would be two sources of truth for the same bytes.</li>
+    </ul>
+
+    <div class="pager">
+      <a href="../index.html">← Documentation home</a>
+      <a href="security.html">Security model →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>
