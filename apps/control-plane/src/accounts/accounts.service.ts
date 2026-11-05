@@ -1,7 +1,14 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { AgentClientService } from '../agent/agent-client.service';
 import { AuditAppender, InjectAudit } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { SHAREABLE_ROLES } from '../common/permissions';
 import { mergeQuotas, validateQuotaSet, QuotaSet } from '../packages/packages.service';
 
 /**
@@ -21,6 +28,21 @@ export interface ManagedAccount {
   gid?: number;
   homedir?: string;
   created_at: string;
+  /**
+   * The CALLER's role on this account ('owner'/'admin'/'member'/'readonly',
+   * or the 'super-admin' sentinel) — lets the UI gate capabilities without
+   * guessing. Absent only if the access-row lookup was skipped.
+   */
+  my_role?: string;
+}
+
+/** One active row of user_hosting_account_access, as returned by the shares API. */
+export interface ShareView {
+  id: string;
+  user: { id: string; email: string; display_name: string };
+  role: string;
+  granted_by: { id: string; email: string } | null;
+  created_at: string;
 }
 
 const USERNAME_RE = /^[a-z][a-z0-9-]{0,31}$/;
@@ -30,6 +52,10 @@ const RESERVED = new Set([
 ]);
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Display order for share listings: owner first, then trust descending. */
+const ROLE_ORDER: Record<string, number> = { owner: 0, admin: 1, member: 2, readonly: 3 };
 
 @Injectable()
 export class AccountsService {
@@ -44,6 +70,9 @@ export class AccountsService {
   /**
    * Server Admins see every account; everyone else only the accounts they
    * hold an active access row for (C7 — isolation starts at the listing).
+   * Each row carries the caller's own role (`my_role`) so the UI can gate
+   * capabilities without a second round-trip; super-admins get the
+   * 'super-admin' sentinel.
    */
   async list(actor?: { userId?: string; isSuperAdmin?: boolean }): Promise<{ data: ManagedAccount[] }> {
     const base = { deleted_at: null };
@@ -61,7 +90,22 @@ export class AccountsService {
       orderBy: { created_at: 'desc' },
       take: 200,
     });
-    return { data: rows.map(rowToManaged) };
+
+    let roleByAccount = new Map<string, string>();
+    if (actor?.isSuperAdmin) {
+      roleByAccount = new Map(rows.map((r) => [r.id, 'super-admin']));
+    } else if (actor?.userId && rows.length > 0) {
+      const accessRows = await this.prisma.userHostingAccountAccess.findMany({
+        where: {
+          user_id: actor.userId,
+          hosting_account_id: { in: rows.map((r) => r.id) },
+          revoked_at: null,
+        },
+        select: { hosting_account_id: true, role: true },
+      });
+      roleByAccount = new Map(accessRows.map((r) => [r.hosting_account_id, r.role]));
+    }
+    return { data: rows.map((row) => ({ ...rowToManaged(row), my_role: roleByAccount.get(row.id) })) };
   }
 
   async get(id: string): Promise<ManagedAccount> {
@@ -317,6 +361,151 @@ export class AccountsService {
     return this.agent.accountUsage(row.username);
   }
 
+  // ------------------------------------------------------------------------
+  // Access sharing (spec §11.3 delegation) — the management surface for the
+  // user_hosting_account_access rows the PermissionsGuard (C6) already
+  // enforces on every account-scoped route. Every write commits in ONE
+  // transaction with its hash-chained audit entry (C11).
+  // ------------------------------------------------------------------------
+
+  /** Active shares of one account, owner first, then trust descending. */
+  async listShares(id: string): Promise<{ data: ShareView[] }> {
+    await this.requireAccount(id);
+    const rows = await this.prisma.userHostingAccountAccess.findMany({
+      where: { hosting_account_id: id, revoked_at: null },
+      include: {
+        user: { select: { id: true, email: true, display_name: true } },
+        granted_by_user: { select: { id: true, email: true } },
+      },
+    });
+    rows.sort(
+      (a, b) =>
+        (ROLE_ORDER[a.role] ?? 99) - (ROLE_ORDER[b.role] ?? 99) ||
+        a.created_at.getTime() - b.created_at.getTime() ||
+        a.id.localeCompare(b.id),
+    );
+    return { data: rows.map(toShareView) };
+  }
+
+  /**
+   * Grants another active user a role on this account (permission
+   * `account:share` — owner/admin/super-admin per §11.3). Fail-closed
+   * validation order: account → role whitelist → user → duplicate. `owner`
+   * is NOT grantable (exactly one owner per account; transfer is a separate
+   * flow). The caller's id is recorded as granted_by for the audit trail.
+   */
+  async grantShare(
+    id: string,
+    email: string,
+    role: string,
+    actorUserId?: string,
+  ): Promise<ShareView> {
+    const row = await this.requireAccount(id);
+    const normalized = String(email ?? '').trim().toLowerCase();
+    if (!normalized || !EMAIL_RE.test(normalized)) {
+      throw new BadRequestException('a valid email address is required');
+    }
+    if (!SHAREABLE_ROLES.includes(role)) {
+      throw new BadRequestException(
+        role === 'owner'
+          ? "role 'owner' cannot be granted — ownership transfer is a separate flow"
+          : `role must be one of: ${SHAREABLE_ROLES.join(', ')}`,
+      );
+    }
+    // Uniform 404 for unknown, deactivated and soft-deleted users — no
+    // oracle distinguishing them (the grantor is inside the trust boundary,
+    // but the panel still avoids confirming which emails ever existed).
+    const target = await this.prisma.user.findFirst({
+      where: { email: normalized, deleted_at: null, is_active: true },
+      select: { id: true, email: true, display_name: true },
+    });
+    if (!target) {
+      throw new NotFoundException('no active user with that email');
+    }
+    const active = await this.prisma.userHostingAccountAccess.findFirst({
+      where: { hosting_account_id: row.id, user_id: target.id, revoked_at: null },
+      select: { id: true },
+    });
+    if (active) {
+      throw new ConflictException(
+        'user already has active access to this account — revoke the share first to change its role',
+      );
+    }
+    const created = await this.prisma.$transaction(async (tx) => {
+      const share = await tx.userHostingAccountAccess.create({
+        data: {
+          user_id: target.id,
+          hosting_account_id: row.id,
+          role,
+          granted_by_user_id: actorUserId ?? null,
+        },
+        include: {
+          user: { select: { id: true, email: true, display_name: true } },
+          granted_by_user: { select: { id: true, email: true } },
+        },
+      });
+      await this.audit.appendWithClient(tx, {
+        operation: 'account.share.grant',
+        parameters: {
+          account_id: row.id,
+          username: row.username,
+          user_id: target.id,
+          email: target.email,
+          role,
+        },
+        outcome: 'success',
+        actorUserId: actorUserId ?? null,
+        hostingAccountId: row.id,
+      });
+      return share;
+    });
+    this.logger.log(`granted '${role}' on ${row.username} to ${target.email}`);
+    return toShareView(created);
+  }
+
+  /**
+   * Soft-revokes one share row (row keeps its history; a fresh grant creates
+   * a NEW row). The lookup is scoped to the route's account and to ACTIVE
+   * rows, and every miss returns the same 404 — a share id from another
+   * account is indistinguishable from an unknown one. The owner row is
+   * irrevocable here (it is the account's root of trust).
+   */
+  async revokeShare(id: string, shareId: string, actorUserId?: string): Promise<void> {
+    const row = await this.requireAccount(id);
+    const share = await this.prisma.userHostingAccountAccess.findFirst({
+      where: { id: shareId, hosting_account_id: row.id, revoked_at: null },
+      include: { user: { select: { id: true, email: true } } },
+    });
+    if (!share) {
+      throw new NotFoundException('share not found');
+    }
+    if (share.role === 'owner') {
+      throw new ConflictException(
+        'the owner access cannot be revoked — ownership transfer is a separate flow',
+      );
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.userHostingAccountAccess.update({
+        where: { id: share.id },
+        data: { revoked_at: new Date() },
+      });
+      await this.audit.appendWithClient(tx, {
+        operation: 'account.share.revoke',
+        parameters: {
+          account_id: row.id,
+          username: row.username,
+          user_id: share.user_id,
+          email: share.user.email,
+          role: share.role,
+        },
+        outcome: 'success',
+        actorUserId: actorUserId ?? null,
+        hostingAccountId: row.id,
+      });
+    });
+    this.logger.log(`revoked '${share.role}' on ${row.username} from ${share.user.email}`);
+  }
+
   private async requireAccount(id: string) {
     const row = await this.prisma.hostingAccount.findFirst({ where: { id, deleted_at: null } });
     if (!row) {
@@ -377,6 +566,25 @@ function rowToManaged(row: HostingAccountRow, gid?: number): ManagedAccount {
     uid: row.linux_uid,
     gid: gid ?? row.linux_uid,
     homedir: row.homedir,
+    created_at: row.created_at.toISOString(),
+  };
+}
+
+type ShareRow = {
+  id: string;
+  role: string;
+  created_at: Date;
+  user_id: string;
+  user: { id: string; email: string; display_name: string } | null;
+  granted_by_user: { id: string; email: string } | null;
+};
+
+function toShareView(row: ShareRow): ShareView {
+  return {
+    id: row.id,
+    user: row.user ?? { id: row.user_id, email: '', display_name: '' },
+    role: row.role,
+    granted_by: row.granted_by_user ? { id: row.granted_by_user.id, email: row.granted_by_user.email } : null,
     created_at: row.created_at.toISOString(),
   };
 }

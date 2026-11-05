@@ -47,6 +47,7 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
   'account:list',
   'account:read',
   'account:resume',
+  'account:share',
   'account:suspend',
   'account:update',
   'audit:list',
@@ -64,6 +65,15 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
 ];
 
 /**
+ * Roles that may be granted through the sharing API (POST /accounts/{id}/shares).
+ * `owner` is deliberately absent: an account has exactly one owner (its
+ * root-of-trust access row, seeded out-of-band); ownership transfer is a
+ * separate, not-yet-built flow — the sharing API must never mint a second
+ * owner or reassign ownership as a side effect of a grant.
+ */
+export const SHAREABLE_ROLES: readonly string[] = ['admin', 'member', 'readonly'];
+
+/**
  * Permissions granted by each per-account role (user_hosting_account_access,
  * spec §11.3: owner = full control; admin = owner minus deletion; member =
  * configurable, minimal by default; readonly = view only).
@@ -71,6 +81,10 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
  * `account:list` is intentionally absent: the guard admits every
  * authenticated user to the collection route and the service filters rows
  * to accounts the caller has an active access row for (C7 direction).
+ *
+ * `account:share` is granted to owner + admin only: delegating access is a
+ * trust-level decision; members and readonly users can never pull in more
+ * people (no transitive trust escalation).
  */
 export const ACCOUNT_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   owner: [
@@ -78,9 +92,10 @@ export const ACCOUNT_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'account:update',
     'account:suspend',
     'account:resume',
+    'account:share',
     'account:delete',
   ],
-  admin: ['account:read', 'account:update', 'account:suspend', 'account:resume'],
+  admin: ['account:read', 'account:update', 'account:suspend', 'account:resume', 'account:share'],
   member: ['account:read'],
   readonly: ['account:read'],
 };

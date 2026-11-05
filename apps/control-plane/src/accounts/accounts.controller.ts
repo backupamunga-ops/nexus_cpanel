@@ -12,7 +12,7 @@ import { AccountsService } from './accounts.service';
 import { RequirePermission } from '../common/permissions';
 import { AuthContext, CurrentUser } from '../auth/request-context';
 
-/** Hosting account endpoints (API spec §4.4) — M0 slice. */
+/** Hosting account endpoints (API spec §4.4) — M0 slice + access sharing (§11.3). */
 @Controller('accounts')
 export class AccountsController {
   constructor(private readonly accounts: AccountsService) {}
@@ -61,6 +61,47 @@ export class AccountsController {
   @RequirePermission('account:read')
   async usage(@Param('id') id: string): Promise<unknown> {
     return this.accounts.usage(id);
+  }
+
+  /**
+   * Access sharing (§11.3): the management surface for the
+   * user_hosting_account_access rows the PermissionsGuard enforces. Listing
+   * requires plain read access (transparency inside the trust boundary);
+   * granting/revoking requires `account:share` (owner/admin only — the role
+   * matrix in common/permissions.ts). Route shape keeps `:id` as the ACCOUNT
+   * id so the guard resolves the caller's role on the right resource.
+   */
+  @Get(':id/shares')
+  @RequirePermission('account:read')
+  async listShares(@Param('id') id: string): Promise<unknown> {
+    return this.accounts.listShares(id);
+  }
+
+  @Post(':id/shares')
+  @HttpCode(201)
+  @RequirePermission('account:share')
+  async grantShare(
+    @Param('id') id: string,
+    @Body() body: { email?: string; role?: string },
+    @CurrentUser() user: AuthContext,
+  ): Promise<unknown> {
+    return this.accounts.grantShare(
+      id,
+      String(body.email ?? ''),
+      String(body.role ?? ''),
+      user.userId,
+    );
+  }
+
+  @Delete(':id/shares/:shareId')
+  @HttpCode(204)
+  @RequirePermission('account:share')
+  async revokeShare(
+    @Param('id') id: string,
+    @Param('shareId') shareId: string,
+    @CurrentUser() user: AuthContext,
+  ): Promise<void> {
+    await this.accounts.revokeShare(id, shareId, user.userId);
   }
 
   @Post(':id/suspend')

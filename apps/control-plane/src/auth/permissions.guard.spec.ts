@@ -137,6 +137,19 @@ describe('PermissionsGuard (C6)', () => {
     );
   });
 
+  it('account:share — owner and admin may delegate; member/readonly may not (no transitive trust)', async () => {
+    for (const role of ['owner', 'admin']) {
+      const allow = harness({ permission: 'account:share', params: { id: 'acc-1' }, accessRole: role });
+      await expect(allow.guard.canActivate(allow.ctx)).resolves.toBe(true);
+    }
+    for (const role of ['member', 'readonly']) {
+      const deny = harness({ permission: 'account:share', params: { id: 'acc-1' }, accessRole: role });
+      await expect(deny.guard.canActivate(deny.ctx)).rejects.toThrow(
+        /does not grant 'account:share'/,
+      );
+    }
+  });
+
   it('readonly role: read yes, suspend no', async () => {
     const { guard, ctx } = harness({ permission: 'account:read', params: { id: 'acc-1' }, accessRole: 'readonly' });
     await expect(guard.canActivate(ctx)).resolves.toBe(true);
