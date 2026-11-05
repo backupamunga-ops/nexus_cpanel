@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Firewall &amp; bans · NexusPanel Docs</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="portal">
+  <aside>
+    <div class="brand">NexusPanel Docs</div>
+    <div class="tag">v0.5.0 · P5</div>
+    <div class="group">Admin guide</div>
+    <nav>
+      <a href="accounts.html">Accounts &amp; packages</a>
+      <a href="sites.html">Sites &amp; domains</a>
+      <a href="files.html">Files, FTP &amp; SSH</a>
+      <a href="dns.html">DNS zones</a>
+      <a href="email.html">Email</a>
+      <a href="databases.html">Databases</a>
+      <a href="backups.html">Backups &amp; restore</a>
+      <a class="active" href="firewall.html">Firewall &amp; bans</a>
+      <a href="ssl.html">SSL certificates</a>
+    </nav>
+    <div class="back"><a href="../index.html">← Documentation home</a></div>
+  </aside>
+  <main>
+    <h1>Firewall &amp; bans</h1>
+    <p class="lede">
+      The <strong>Firewall</strong> screen is the panel's view of two things:
+      who is allowed to reach the server (an nftables table the panel manages
+      end to end), and who got locked out for behaving badly (fail2ban jails
+      and their ban lists, read live from the node). Both surfaces speak plain
+      language: rules are named, ports and directions are spelled out, and
+      every change is safety-checked before it goes live.
+    </p>
+
+    <img class="screenshot" src="../static/screenshots/p4/21-firewall.png"
+         alt="Firewall panel: node state card, rules table and the add-rule form with the lockout-safety hint">
+
+    <h2>How rules reach the node <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Adding or removing a rule never edits one line of a live ruleset. The
+      panel renders <strong>all</strong> rules into one managed nftables table
+      (<code>inet nexuspanel</code>) and asks the agent to apply it as a unit:
+      first a compile check (<code>nft -c</code> — a broken ruleset never
+      touches the kernel), then the swap of the previous generation, then the
+      apply. Only after the agent reports success does the panel write the
+      registry row. A failed apply leaves the firewall running exactly as it
+      was and the panel unchanged — the failure, including the agent's
+      refusal text, is shown to you and recorded in the audit chain
+      (ADR-0016).
+    </p>
+
+    <h2>The self-lockout guard <span class="badge ok">agent-enforced</span></h2>
+    <p>
+      The most dangerous click in any firewall UI is the one that locks you
+      out of your own server. The agent refuses — no matter what the panel
+      asks — any block rule that would sever the management path from an
+      unrestricted source: tcp/22 (ssh), tcp/3000 (the control plane) or
+      tcp/5173 (the panel web), or a block with no port filter at all. The
+      refusal names the exact port: <em>"rule would block the management path
+      (ssh, tcp/22) from any source — refused (self-lockout guard)"</em>. If
+      you genuinely need such a rule (for example you manage SSH through
+      something else), the override flag exists and is audited verbatim.
+    </p>
+
+    <h2>Break-in attempts (fail2ban) <span class="badge ok">live read</span></h2>
+    <p>
+      The jails card lists what fail2ban on the node reports right now: how
+      many addresses are currently banned, how many in total, and the actual
+      IP list per jail. This is <strong>live state, not a copy</strong> — the
+      panel keeps no ban database, so what you see is what the node is doing
+      this second. If the agent is unreachable the card says so instead of
+      showing a stale list as if current.
+    </p>
+    <p>
+      <strong>Unban</strong> is the only ban action the panel offers, it asks
+      for confirmation, and it is audited. There is deliberately no "ban this
+      IP" button: banning is fail2ban's job (it watches logs and lifts bans
+      on schedule), and a manual ban button would turn a compromised panel
+      session into a denial-of-service weapon. If you want an address blocked
+      permanently, add a firewall rule — it goes through the same
+      safety-checked pipeline as everything else.
+    </p>
+
+    <img class="screenshot" src="../static/screenshots/p4/22-firewall-bans.png"
+         alt="Firewall panel: ban cards per jail with unbans, or the honest agent-unreachable note">
+
+    <h2>What the panel does not do (honest list)</h2>
+    <ul>
+      <li>Live ruleset view requires the agent — with the agent offline the
+        state card reports it; the rules registry still shows what the panel
+        last applied.</li>
+      <li>No per-account firewall zones in P5 — rules are server-wide; the
+        reseller-scoped policy layer is future work.</li>
+      <li>No NAT/port-forward management, no traffic shaping — v1.0 scope is
+        the filter table only.</li>
+      <li>fail2ban jail configuration (maxretry, bantime) is provisioned on
+        the node today; editing jail settings from the panel is planned
+        after the settings pipeline matures.</li>
+    </ul>
+  </main>
+</div>
+</body>
+</html>

@@ -13,6 +13,7 @@ import { DnsModule } from './dns/dns.module';
 import { MailModule } from './mail/mail.module';
 import { DatabasesModule } from './databases/databases.module';
 import { BackupsModule } from './backups/backups.module';
+import { FirewallModule } from './firewall/firewall.module';
 import { SslModule } from './ssl/ssl.module';
 import { PhpModule } from './php/php.module';
 import { ConfigModule } from './config/config.module';
@@ -39,6 +40,7 @@ import { PrismaModule } from './prisma/prisma.module';
     MailModule,
     DatabasesModule,
     BackupsModule,
+    FirewallModule,
     SslModule,
     PhpModule,
     ConfigModule,

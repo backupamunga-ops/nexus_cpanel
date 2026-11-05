@@ -433,19 +433,37 @@ The full endpoint catalog is large. Below is the **complete catalog** with metho
 | POST | `/ssl/certificates/{id}/renew` | jwt/token | `ssl:issue` |
 | DELETE | `/ssl/certificates/{id}` | jwt/token | `ssl:revoke` |
 
-### 4.15 Security — `/api/v1/security`
+### 4.15 Security — firewall, fail2ban (B11, live) — `/api/v1/firewall`
+
+Implemented at B11 under the dedicated `/firewall` module (the pre-B11 draft
+had these rows under `/security/*` with `security:*` permissions; the
+implementation keeps server-wide network policy in its own family —
+`firewall:read` / `firewall:manage` — so hosting-scoped grants can never
+reach it, and the module boundary matches the agent spec amendment ADR-0016).
 
 | Method | Path | Auth | Permission |
 |---|---|---|---|
-| GET | `/security/firewall/rules` | jwt | `security:read` |
-| POST | `/security/firewall/rules` | jwt | `security:manage` |
-| DELETE | `/security/firewall/rules/{id}` | jwt | `security:manage` |
-| POST | `/security/firewall/apply` | jwt | `security:manage` |
-| GET | `/security/fail2ban/jails` | jwt | `security:read` |
-| PATCH | `/security/fail2ban/jails/{name}` | jwt | `security:manage` |
-| POST | `/security/fail2ban/ban` | jwt | `security:manage` |
-| POST | `/security/fail2ban/unban` | jwt | `security:manage` |
-| GET | `/security/fail2ban/bans` | jwt | `security:read` |
+| GET | `/firewall/rules` | jwt | `firewall:read` |
+| POST | `/firewall/rules` | jwt | `firewall:manage` |
+| PATCH | `/firewall/rules/{id}` | jwt | `firewall:manage` |
+| DELETE | `/firewall/rules/{id}` | jwt | `firewall:manage` |
+| GET | `/firewall/status` | jwt | `firewall:read` |
+| GET | `/firewall/fail2ban/jails` | jwt | `firewall:read` |
+| POST | `/firewall/fail2ban/unban` | jwt | `firewall:manage` |
+
+Semantics (ADR-0016): every mutation is agent-first — the FULL desired rule
+set is applied through one `firewall.apply_rules` reconcile before any row
+is written; a failed apply (including the agent's fail-closed `nft -c` check
+and the self-lockout guard covering tcp/22 + the panel's own HTTP surfaces)
+leaves the registry untouched and returns the agent's operator-readable
+refusal. There is deliberately no ban endpoint: banning is fail2ban's job;
+the panel reads jails/bans live from the node and offers only an audited
+unban. `POST /firewall/fail2ban/unban` body: `{ "jail": "sshd", "ip": "203.0.113.9" }`.
+
+### 4.15a Security — WAF & anti-malware (B12, planned) — `/api/v1/security`
+
+| Method | Path | Auth | Permission |
+|---|---|---|---|
 | GET | `/security/modsecurity/{domain_id}` | jwt/token | `security:read` |
 | PATCH | `/security/modsecurity/{domain_id}` | jwt/token | `security:manage` |
 | POST | `/security/malware/scan` | jwt | `security:manage` |

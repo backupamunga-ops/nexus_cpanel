@@ -55,6 +55,8 @@ export const WEB_KNOWN_PERMISSIONS: readonly string[] = [
   'ftp:delete',
   'ftp:list',
   'ftp:update',
+  'firewall:manage',
+  'firewall:read',
   'mail:create',
   'mail:delete',
   'mail:list',

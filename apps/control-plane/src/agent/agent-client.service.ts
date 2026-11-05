@@ -1003,6 +1003,69 @@ export class AgentClientService {
     return r.result;
   }
 
+  // ---- firewall.* + fail2ban.* (§4.17, ADR-0016) — B11 --------------------
+
+  async firewallApplyRules(
+    rules: Array<{
+      name: string;
+      direction: string;
+      protocol: string;
+      port_from?: number | null;
+      port_to?: number | null;
+      source_cidr?: string;
+      action: string;
+    }>,
+    allowUnsafe = false,
+  ): Promise<{ status: string; rule_count: number; conf_path: string; checked: boolean }> {
+    const r = await this.call<{
+      status: string;
+      rule_count: number;
+      conf_path: string;
+      checked: boolean;
+    }>('firewall.apply_rules', {
+      rules,
+      allow_unsafe_management_lockout: allowUnsafe,
+    });
+    return r.result;
+  }
+
+  async firewallStatus(): Promise<{ configured: boolean; table: string; ruleset: string }> {
+    const r = await this.call<{ configured: boolean; table: string; ruleset: string }>(
+      'firewall.status',
+      {},
+    );
+    return r.result;
+  }
+
+  async fail2banJails(): Promise<{
+    jails: Array<{
+      name: string;
+      currently_banned: number;
+      total_banned: number;
+      banned_ips: string[];
+      note?: string;
+    }>;
+  }> {
+    const r = await this.call<{
+      jails: Array<{
+        name: string;
+        currently_banned: number;
+        total_banned: number;
+        banned_ips: string[];
+        note?: string;
+      }>;
+    }>('fail2ban.jails', {});
+    return r.result;
+  }
+
+  async fail2banUnban(jail: string, ip: string): Promise<{ jail: string; ip: string; unbanned: boolean }> {
+    const r = await this.call<{ jail: string; ip: string; unbanned: boolean }>('fail2ban.unban', {
+      jail,
+      ip,
+    });
+    return r.result;
+  }
+
   /** Exposed for tests: the exact bytes that were signed. */
   static signatureInput(
     method: string,

@@ -15,9 +15,9 @@ import (
         _ "net/http/pprof" // registered on the metrics mux in P1; harmless placeholder
         "os"
         "os/signal"
-	"os/user"
+        "os/user"
         "path/filepath"
-	"strconv"
+        "strconv"
         "syscall"
 
         "github.com/backupamunga-ops/nexus_cpanel/apps/agent/internal/auth"
@@ -69,6 +69,9 @@ func main() {
                 // VmailUID/GID default to the vmail user when running as root.
                 PostfixMapDir: os.Getenv("NEXUSAGENT_POSTFIX_MAP_DIR"),
                 VmailRoot:     os.Getenv("NEXUSAGENT_VMAIL_ROOT"),
+                // firewall.* + fail2ban.* (ADR-0016): the rendered nftables
+                // conf path; binaries resolve via LookPath when unset.
+                NftConfPath: os.Getenv("NEXUSAGENT_NFT_CONF_PATH"),
         }
         if deps.VmailUID, deps.VmailGID = resolveVmailIDs(); deps.VmailUID == 0 && deps.VmailGID == 0 {
                 log.Print("vmail uid/gid unresolved — maildirs will be created without chown (dev rigs only)")

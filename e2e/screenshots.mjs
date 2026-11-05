@@ -133,6 +133,13 @@ if (EMAIL && PASSWORD) {
   await page.waitForTimeout(700);
   await shot('20-backups-runs.png');
 
+  await go('/firewall', 900);
+  await shot('21-firewall.png');
+  // With seeded rules + jails, the bans cards sit below the fold.
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.waitForTimeout(500);
+  await shot('22-firewall-bans.png');
+
   await go('/accounts', 900);
   await shot('12-accounts-detail.png');
 
