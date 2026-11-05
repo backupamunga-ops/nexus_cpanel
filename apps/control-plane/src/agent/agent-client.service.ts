@@ -187,6 +187,15 @@ export class AgentClientService {
     await this.call('account.suspend', { username });
   }
 
+  async accountResume(username: string): Promise<void> {
+    await this.call('account.resume', { username });
+  }
+
+  /** Provisions the account's cgroup v2 slice (M0 spec §2.4). */
+  async isolationProvision(username: string, profile = 'standard'): Promise<void> {
+    await this.call('isolation.provision', { username, profile });
+  }
+
   async accountDelete(username: string): Promise<void> {
     await this.call('account.delete', { username, preserve_files: true });
   }

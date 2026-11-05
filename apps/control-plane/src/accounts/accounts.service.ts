@@ -86,6 +86,25 @@ export class AccountsService {
       throw e;
     }
 
+    // M0 spec §2.3–4: account.create is immediately followed by
+    // isolation.provision (the cgroup v2 slice). A provision failure is
+    // audited and logged but does NOT roll back the created user — usage
+    // reads return zeros until the slice exists; the M0 runbook covers
+    // re-provisioning on the node. Rollback compensation is P1 work.
+    try {
+      await this.agent.isolationProvision(username, 'standard');
+    } catch (e) {
+      await this.audit.append({
+        operation: 'isolation.provision',
+        parameters: { username, error: (e as Error).message },
+        outcome: 'failure',
+        actorUserId: actorUserId ?? null,
+      });
+      this.logger.warn(
+        `isolation.provision failed for ${username}: ${(e as Error).message}`,
+      );
+    }
+
     const row = await this.prisma.$transaction(async (tx) => {
       const created = await tx.hostingAccount.create({
         data: {
@@ -143,6 +162,18 @@ export class AccountsService {
 
   async resume(id: string, actorUserId?: string): Promise<ManagedAccount> {
     const row = await this.requireAccount(id);
+    try {
+      await this.agent.accountResume(row.username);
+    } catch (e) {
+      await this.audit.append({
+        operation: 'account.resume',
+        parameters: { username: row.username, account_id: row.id, error: (e as Error).message },
+        outcome: 'failure',
+        actorUserId: actorUserId ?? null,
+        hostingAccountId: row.id,
+      });
+      throw e;
+    }
     const updated = await this.prisma.$transaction(async (tx) => {
       const u = await tx.hostingAccount.update({
         where: { id: row.id },

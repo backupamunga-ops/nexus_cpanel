@@ -54,6 +54,8 @@ async function makeService() {
   const agent = {
     accountCreate: jest.fn().mockResolvedValue({ uid: 2101, gid: 2101, homedir: '/home/alice' }),
     accountSuspend: jest.fn().mockResolvedValue(undefined),
+    accountResume: jest.fn().mockResolvedValue(undefined),
+    isolationProvision: jest.fn().mockResolvedValue(undefined),
     accountDelete: jest.fn().mockResolvedValue(undefined),
     accountUsage: jest.fn().mockResolvedValue({ disk_mb: 12, cpu_percent: 0.4 }),
   };
@@ -99,6 +101,7 @@ describe('AccountsService (M0 slice)', () => {
 
     const resumed = await svc.resume(account.id, ACTOR);
     expect(resumed.status).toBe('active');
+    expect(agent.accountResume).toHaveBeenCalledWith('alice');
 
     const ops = audit.list().map((e) => e.operation);
     expect(ops).toEqual(['account.create', 'account.suspend', 'account.resume']);
@@ -123,5 +126,42 @@ describe('AccountsService (M0 slice)', () => {
     const usage = await svc.usage(account.id);
     expect(usage).toEqual({ disk_mb: 12, cpu_percent: 0.4 });
     expect(agent.accountUsage).toHaveBeenCalledWith('alice');
+  });
+
+  it('provisions the isolation slice right after account.create (M0 §2.3–4)', async () => {
+    const { svc, agent, audit } = await makeService();
+
+    await svc.create('alice', 'pkg-default', ACTOR);
+
+    expect(agent.isolationProvision).toHaveBeenCalledWith('alice', 'standard');
+    // A successful provision writes no audit entry of its own — the create
+    // entry covers the whole flow.
+    expect(audit.list().map((e) => e.operation)).toEqual(['account.create']);
+  });
+
+  it('audits but survives an isolation.provision failure (no rollback in M0)', async () => {
+    const { svc, agent, audit } = await makeService();
+    agent.isolationProvision.mockRejectedValueOnce(new Error('cgroupfs not delegated'));
+
+    const account = await svc.create('alice', 'pkg-default', ACTOR);
+
+    expect(account.username).toBe('alice');
+    const provision = audit.list().find((e) => e.operation === 'isolation.provision');
+    expect(provision).toBeDefined();
+    expect(provision!.outcome).toBe('failure');
+  });
+
+  it('resume failure is audited and propagates — the row stays suspended', async () => {
+    const { svc, agent, audit } = await makeService();
+    const account = await svc.create('alice', 'pkg-default', ACTOR);
+    await svc.suspend(account.id, ACTOR);
+    agent.accountResume.mockRejectedValueOnce(new Error('agent unreachable'));
+
+    await expect(svc.resume(account.id, ACTOR)).rejects.toThrow('agent unreachable');
+
+    const entry = audit.list().at(-1)!;
+    expect(entry.operation).toBe('account.resume');
+    expect(entry.outcome).toBe('failure');
+    expect((await svc.get(account.id)).status).toBe('suspended');
   });
 });
