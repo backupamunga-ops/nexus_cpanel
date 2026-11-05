@@ -38,6 +38,13 @@ interface SshKey {
   created_at: string;
 }
 
+interface SshDeployedView {
+  file: string;
+  exists: boolean;
+  foreign_count: number;
+  data: Array<{ ssh_key_id: string; name: string; fingerprint: string; on_node: boolean }>;
+}
+
 interface AccountOption {
   id: string;
   username: string;
@@ -58,6 +65,7 @@ export default function FilesPage() {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [trash, setTrash] = useState<TrashEntry[]>([]);
   const [sshKeys, setSshKeys] = useState<SshKey[]>([]);
+  const [sshDeployed, setSshDeployed] = useState<SshDeployedView | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -86,6 +94,8 @@ export default function FilesPage() {
       setTrash(t.data ?? []);
       const k = await api<{ data: SshKey[] }>(`/ssh/keys?account_id=${encodeURIComponent(accountId)}`);
       setSshKeys(k.data ?? []);
+      const d = await api<SshDeployedView>(`/ssh/keys/deployed?account_id=${encodeURIComponent(accountId)}`);
+      setSshDeployed(d);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'control plane unreachable');
@@ -383,30 +393,54 @@ export default function FilesPage() {
             <div className="np-card">
               <h3 style={{ marginTop: 0 }}>SSH keys</h3>
               <p style={{ fontSize: 12, color: 'var(--np-muted)', marginTop: 0 }}>
-                <span className="np-badge">stored — not yet deployed to the node</span>{' '}
-                authorized_keys provisioning lands with the P4 agent amendment.
+                Deploy reconciles only the panel-managed lines of
+                <code> authorized_keys</code>; keys added by hand on the node
+                are never touched.
+                {sshDeployed && sshDeployed.exists && sshDeployed.foreign_count > 0 && (
+                  <>
+                    {' '}Currently {sshDeployed.foreign_count} foreign key(s) on the node.
+                  </>
+                )}
               </p>
               {sshKeys.length === 0 && <p style={{ color: 'var(--np-muted)', fontSize: 13 }}>No keys imported.</p>}
-              {sshKeys.map((k) => (
-                <div key={k.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-                  <span style={{ fontSize: 12, wordBreak: 'break-all' }}>
-                    <strong>{k.name}</strong>
-                    <br />
-                    <code>{k.fingerprint}</code>
-                  </span>
-                  <button
-                    className="np-button"
-                    style={{ padding: '2px 8px', fontSize: 11 }}
-                    disabled={busy}
-                    onClick={() => {
-                      if (!window.confirm(`Remove key ${k.name}?`)) return;
-                      void run(() => api(`/ssh/keys/${k.id}`, { method: 'DELETE' }), 'key removed.');
-                    }}
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
+              {sshKeys.map((k) => {
+                const onNode = sshDeployed?.data.find((d) => d.ssh_key_id === k.id)?.on_node;
+                return (
+                  <div key={k.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 12, wordBreak: 'break-all' }}>
+                      <strong>{k.name}</strong>{' '}
+                      {onNode ? <span className="np-badge">on node</span> : <span className="np-badge">not deployed</span>}
+                      <br />
+                      <code>{k.fingerprint}</code>
+                    </span>
+                    <button
+                      className="np-button"
+                      style={{ padding: '2px 8px', fontSize: 11 }}
+                      disabled={busy}
+                      onClick={() => {
+                        if (!window.confirm(`Remove key ${k.name}? It is removed from the node on the next deploy.`)) return;
+                        void run(() => api(`/ssh/keys/${k.id}`, { method: 'DELETE' }), 'key removed.');
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                );
+              })}
+              <div style={{ marginTop: 8 }}>
+                <button
+                  className="np-button"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(
+                      () => api('/ssh/keys/deploy', { method: 'POST', body: JSON.stringify({ account_id: accountId }) }),
+                      'keys deployed — authorized_keys reconciled on the node.',
+                    )
+                  }
+                >
+                  Deploy to node
+                </button>
+              </div>
               <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
                 <input
                   className="np-input"
@@ -433,7 +467,7 @@ export default function FilesPage() {
                           method: 'POST',
                           body: JSON.stringify({ account_id: accountId, name: keyName.trim(), public_key: keyBody.trim() }),
                         }),
-                      'key imported (stored, not yet deployed).',
+                      'key imported — use Deploy to node to write it to authorized_keys.',
                     ).then(() => {
                       setKeyName('');
                       setKeyBody('');

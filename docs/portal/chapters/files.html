@@ -62,19 +62,32 @@
       in the ledger, visible instead of vanishing.
     </p>
 
-    <h2>SSH keys <span class="badge ok">stored in the panel</span></h2>
+    <h2>SSH keys <span class="badge ok">live in the panel</span></h2>
     <p>
       Import per-account public keys (ed25519, RSA, ECDSA — single-line
       OpenSSH format). The panel computes the SHA-256 fingerprint at import
       and refuses duplicates, so a mis-pasted key is caught at import, not at
       2 a.m. when it "doesn't work".
     </p>
-    <div class="callout warn">
-      Keys are <strong>stored — not yet deployed to the node</strong>. The
-      <code>authorized_keys</code> write path is an agent-side operation that
-      lands with the P4 amendment; the UI labels this state honestly instead
-      of pretending the key is active.
-    </div>
+    <p>
+      <strong>Deploy to node</strong> writes the imported keys to the
+      account's <code>~/.ssh/authorized_keys</code> through the agent's
+      <code>ssh.deploy_keys</code> (<a href="../adr/ADR-0010-ssh-authorized-keys.md">ADR-0010</a>).
+      The reconcile is marker-based: every line the panel owns ends with a
+      <code>nexus-managed:&lt;fingerprint&gt;</code> comment, and only those
+      lines are rewritten — keys added by hand on the node are preserved
+      verbatim. The per-key <em>on node</em> badge is read live from the
+      node's actual file on every view; nothing is cached in the database,
+      so the badge cannot lie (D-11).
+    </p>
+    <ul>
+      <li><code>~/.ssh</code> is 0700 and <code>authorized_keys</code> is
+        0600, both owned by the account user.</li>
+      <li>Removing a key in the panel removes it from the node on the next
+        deploy — the UI says so at removal time.</li>
+      <li>Hand-copied panel lines (marker included) become panel-managed by
+        definition — the marker means "the panel owns this line".</li>
+    </ul>
 
     <h2>What the agent refuses</h2>
     <ul>
@@ -94,7 +107,6 @@
         its own amendment and lands later.</li>
       <li><strong>Archive/extract and server-side search</strong> — later
         P3 additions to the same file service.</li>
-      <li><strong>SSH key deployment</strong> — see the callout above.</li>
     </ul>
 
     <div class="pager">
