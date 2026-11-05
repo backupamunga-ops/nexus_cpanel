@@ -1,0 +1,94 @@
+# NexusPanel CI — gates per docs/plan/BUILD_PLAN.md §5 (testing strategy by layer).
+#
+# Install model: npm workspaces with a SINGLE root lockfile (package-lock.json).
+# `npm ci` at the repo root installs every workspace; per-workspace scripts are
+# invoked with `npm run <script> --workspace apps/<name>`. Do not reintroduce
+# per-app lockfiles.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Gate 1: schema drift (ADR-0004 — the DDL is the single source of truth) ──
+  schema-drift:
+    name: schema drift (DDL ↔ Prisma)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Regenerate schema.prisma from canonical DDL; fail on any diff
+        run: npm run prisma:check
+
+  # ── Gate 2: control plane (NestJS) — typecheck, unit tests, build ──
+  control-plane:
+    name: control-plane (NestJS)
+    runs-on: ubuntu-latest
+    env:
+      # Prisma client generation does not connect; a placeholder URL satisfies
+      # datasource env resolution. Integration tests (Testcontainers) come with P1.
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Generate Prisma client
+        run: npm run prisma:generate --workspace apps/control-plane
+      - name: Typecheck
+        run: npm run typecheck --workspace apps/control-plane
+      - name: Unit tests
+        run: npm run test --workspace apps/control-plane
+      - name: Build
+        run: npm run build --workspace apps/control-plane
+
+  # ── Gate 3: web (Next.js) — typecheck, build ──
+  web:
+    name: web (Next.js)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck --workspace apps/web
+      - name: Build
+        run: npm run build --workspace apps/web
+
+  # ── Gate 4: agent (Go, stdlib-only module — no go.sum, no module cache) ──
+  agent:
+    name: agent (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/agent/go.mod
+          cache: false # stdlib-only: no go.sum → module cache would error
+      - name: Vet
+        working-directory: apps/agent
+        run: go vet ./...
+      - name: Test
+        working-directory: apps/agent
+        run: go test ./...
+      - name: Build
+        working-directory: apps/agent
+        run: go build -o /tmp/nexus-agent ./cmd/agent
