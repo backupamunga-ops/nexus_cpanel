@@ -75,7 +75,7 @@ func TestRegistryAllowlistShape(t *testing.T) {
 	for _, m := range []string{
 		"account.create", "account.modify", "account.suspend", "account.resume",
 		"account.delete", "account.quota", "account.usage", "account.list",
-		"system.health", "system.info",
+		"isolation.provision", "system.health", "system.info",
 	} {
 		if _, ok := r.Lookup(m); !ok {
 			t.Fatalf("missing allowlisted method %s", m)

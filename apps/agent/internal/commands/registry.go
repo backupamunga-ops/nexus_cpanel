@@ -37,11 +37,14 @@ func NewRegistry(deps Deps) *Registry {
 	r.m["account.create"] = r.accountCreate
 	r.m["account.modify"] = r.notImplementedYet
 	r.m["account.suspend"] = r.accountSuspend
-	r.m["account.resume"] = r.notImplementedYet
+	r.m["account.resume"] = r.accountResume
 	r.m["account.delete"] = r.accountDelete
 	r.m["account.quota"] = r.notImplementedYet
 	r.m["account.usage"] = r.accountUsage
 	r.m["account.list"] = r.accountList
+
+	// isolation.* (§4.2) — M0: cgroup v2 slice provisioning only
+	r.m["isolation.provision"] = r.isolationProvision
 
 	// system.* (§4.15) — M0 subset
 	r.m["system.health"] = r.systemHealth

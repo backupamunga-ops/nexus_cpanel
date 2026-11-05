@@ -97,6 +97,8 @@ type statusResult struct {
 }
 
 // accountSuspend kills the account's processes and disables login (spec §4.1).
+// M0 note: the passwd result is tolerated so the WAL entry always records the
+// command — strict shadow-file verification lands with account.modify (P1).
 func (r *Registry) accountSuspend(id string, raw json.RawMessage) (any, *rpc.AuditHint, error) {
 	var p accountNameParams
 	if err := decodeParams(raw, &p); err != nil {
@@ -114,6 +116,28 @@ func (r *Registry) accountSuspend(id string, raw json.RawMessage) (any, *rpc.Aud
 	entry := r.deps.WAL.NewEntry("account.suspend", map[string]any{"username": p.Username})
 	_ = r.deps.WAL.Append(entry)
 	return statusResult{Status: "suspended"}, auditQueued(entry), nil
+}
+
+// accountResume re-enables login for a suspended account (spec §4.1) — the
+// symmetric counterpart of accountSuspend's `passwd -l`. Same M0 tolerance as
+// suspend: the WAL entry always records the issued command.
+func (r *Registry) accountResume(id string, raw json.RawMessage) (any, *rpc.AuditHint, error) {
+	var p accountNameParams
+	if err := decodeParams(raw, &p); err != nil {
+		return nil, nil, err
+	}
+	if !usernameRe.MatchString(p.Username) {
+		return nil, nil, &rpc.RPCError{Code: rpc.CodeInvalidParams, Message: "invalid username"}
+	}
+	if _, _, ok := lookupUser(p.Username); !ok {
+		return nil, nil, &rpc.RPCError{Code: rpc.CodePrecondition, Message: "account does not exist"}
+	}
+	if passwd, err := exec.LookPath("passwd"); err == nil {
+		_ = exec.Command(passwd, "-u", p.Username).Run()
+	}
+	entry := r.deps.WAL.NewEntry("account.resume", map[string]any{"username": p.Username})
+	_ = r.deps.WAL.Append(entry)
+	return statusResult{Status: "active"}, auditQueued(entry), nil
 }
 
 type accountDeleteParams struct {
@@ -146,6 +170,9 @@ func (r *Registry) accountDelete(id string, raw json.RawMessage) (any, *rpc.Audi
 			Message: fmt.Sprintf("userdel failed: %v: %s", err, truncate(string(out), 256)),
 		}
 	}
+	// Cgroup slice teardown is best-effort cleanup on the delete path (spec §4.1);
+	// a missing slice (never provisioned / already removed) is a no-op.
+	_ = removeAccountCgroup(r.deps.CgroupRoot, p.Username)
 	entry := r.deps.WAL.NewEntry("account.delete", map[string]any{"username": p.Username})
 	_ = r.deps.WAL.Append(entry)
 	return statusResult{Status: "deleted"}, auditQueued(entry), nil
