@@ -51,6 +51,46 @@ interface AutoresponderDto {
   schedule_state: 'active' | 'scheduled' | 'expired';
 }
 
+interface DkimStateDto {
+  mail_domain_id: string;
+  domain: string;
+  selector: string | null;
+  rotated_at: string | null;
+  created_at: string | null;
+  dns_record_present: boolean;
+  signing: boolean;
+  signing_note: string | null;
+}
+
+interface DkimApplyResult extends DkimStateDto {
+  dns_record: string;
+}
+
+interface QueueEntry {
+  queue_id: string;
+  size: number;
+  arrival: string;
+  sender: string;
+  recipient?: string;
+  reason?: string;
+}
+
+interface QueueResult {
+  queue: QueueEntry[];
+  total: number;
+  source: string;
+}
+
+interface RelayDto {
+  provider: string;
+  smtp_host: string;
+  smtp_port: number;
+  username: string;
+  has_credentials: boolean;
+  is_active: boolean;
+  updated_at: string;
+}
+
 interface AccountOption {
   id: string;
   username: string;
@@ -79,6 +119,19 @@ export default function MailPage() {
   const [arMailbox, setArMailbox] = useState('');
   const [arSubject, setArSubject] = useState('');
   const [arBody, setArBody] = useState('');
+
+  // B08 deliverability
+  const [dkim, setDkim] = useState<DkimStateDto | null>(null);
+  const [dkimRecord, setDkimRecord] = useState<string | null>(null);
+  const [dmarcPolicy, setDmarcPolicy] = useState('quarantine');
+  const [dmarcRua, setDmarcRua] = useState('');
+  const [queue, setQueue] = useState<QueueResult | null>(null);
+  const [relay, setRelay] = useState<RelayDto | null>(null);
+  const [relayProvider, setRelayProvider] = useState('custom');
+  const [relayHost, setRelayHost] = useState('');
+  const [relayPort, setRelayPort] = useState('587');
+  const [relayUser, setRelayUser] = useState('');
+  const [relayPassword, setRelayPassword] = useState('');
 
   useEffect(() => {
     setUser(getUser());
@@ -121,15 +174,19 @@ export default function MailPage() {
     setMailboxes([]);
     setAliases([]);
     setAutoresponders([]);
+    setDkim(null);
+    setDkimRecord(null);
     try {
-      const [b, a, r] = await Promise.all([
+      const [b, a, r, k] = await Promise.all([
         api<{ data: MailboxDto[] }>(`/mail/domains/${d.id}/mailboxes`),
         api<{ data: MailAliasDto[] }>(`/mail/domains/${d.id}/aliases`),
         api<{ data: AutoresponderDto[] }>(`/mail/domains/${d.id}/autoresponders`),
+        api<DkimStateDto>(`/mail/domains/${d.id}/dkim`),
       ]);
       setMailboxes(b.data ?? []);
       setAliases(a.data ?? []);
       setAutoresponders(r.data ?? []);
+      setDkim(k);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'failed to load mail domain detail');
     }
@@ -310,6 +367,168 @@ export default function MailPage() {
       await loadDomain(selected);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'autoresponder removal failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ---- B08 deliverability ---------------------------------------------------
+
+  async function enableDkim() {
+    if (!selected) return;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const out = await api<DkimApplyResult>(`/mail/domains/${selected.id}/dkim`, { method: 'POST', body: JSON.stringify({}) });
+      setDkim(out);
+      setDkimRecord(out.dns_record);
+      setMessage(
+        out.signing
+          ? `DKIM enabled (selector ${out.selector}) — key stored, DNS published, opendkim signing active.`
+          : `DKIM key stored and DNS published (selector ${out.selector}), but signing is NOT active yet: ${out.signing_note}`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'DKIM enable failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rotateDkim() {
+    if (!selected) return;
+    if (!window.confirm('Rotate the DKIM key? The old selector stays published until you remove its TXT record.')) return;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const out = await api<DkimApplyResult>(`/mail/domains/${selected.id}/dkim/rotate`, { method: 'POST', body: JSON.stringify({}) });
+      setDkim(out);
+      setDkimRecord(out.dns_record);
+      setMessage(`DKIM rotated to selector ${out.selector}. The old TXT record stays published — remove it after the transition window.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'DKIM rotation failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applySpf() {
+    if (!selected) return;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const out = await api<{ domain: string; record: string }>(`/mail/domains/${selected.id}/spf`, { method: 'POST', body: JSON.stringify({}) });
+      setMessage(`SPF published for ${out.domain}: "${out.record}"`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'SPF apply failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyDmarc(e: FormEvent) {
+    e.preventDefault();
+    if (!selected) return;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const out = await api<{ domain: string; record: string }>(`/mail/domains/${selected.id}/dmarc`, {
+        method: 'POST',
+        body: JSON.stringify({ policy: dmarcPolicy, rua: dmarcRua.trim() || undefined }),
+      });
+      setMessage(`DMARC published for ${out.domain}: "${out.record}"`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'DMARC apply failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadQueue() {
+    setBusy(true);
+    setError(null);
+    try {
+      setQueue(await api<QueueResult>('/mail/queue'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'queue read failed — the node must have postqueue for an honest answer');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function flushQueue(id?: string) {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await api('/mail/queue/flush', { method: 'POST', body: JSON.stringify(id ? { queue_id: id } : {}) });
+      setMessage(id ? `Flush requested for ${id}.` : 'Flush requested for the whole queue.');
+      await loadQueue();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'queue flush failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function retryMessage(id: string) {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await api(`/mail/queue/${id}/retry`, { method: 'POST' });
+      setMessage(`${id} requeued.`);
+      await loadQueue();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'requeue failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadRelay() {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api<RelayDto>('/mail/relay');
+      setRelay(r);
+      setRelayProvider(r.provider === 'none' ? 'custom' : r.provider);
+      setRelayHost(r.smtp_host);
+      setRelayPort(String(r.smtp_port));
+      setRelayUser(r.username);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'relay profile read failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveRelay(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const out = await api<RelayDto>('/mail/relay', {
+        method: 'PUT',
+        body: JSON.stringify({
+          provider: relayProvider,
+          smtp_host: relayHost.trim(),
+          smtp_port: Number(relayPort) || 587,
+          username: relayUser.trim(),
+          password: relayPassword,
+        }),
+      });
+      setRelay(out);
+      setRelayPassword('');
+      setMessage(
+        'Relay profile stored (credentials encrypted at rest). Honest note: the node transport wiring is NOT applied yet — delivery still follows the current relay configuration until the config-engine Postfix pipeline lands.',
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'relay save failed');
     } finally {
       setBusy(false);
     }
@@ -570,8 +789,176 @@ export default function MailPage() {
               framework (B13).
             </p>
           </section>
+
+          <section className="np-card">
+            <h2>Deliverability — {selected.name}</h2>
+            {dkim ? (
+              <>
+                <p>
+                  DKIM:{' '}
+                  <span className={`np-badge ${dkim.signing ? 'ok' : ''}`}>
+                    {dkim.signing ? 'signing active' : dkim.selector ? 'stored — not signing' : 'not enabled'}
+                  </span>{' '}
+                  {dkim.selector && <>selector <code>{dkim.selector}</code>{dkim.rotated_at && <> (rotated {new Date(dkim.rotated_at).toLocaleString()})</>}</>}
+                </p>
+                {dkim.signing_note && <p className="np-muted">{dkim.signing_note}</p>}
+              </>
+            ) : (
+              <p className="np-muted">DKIM state loads with the domain.</p>
+            )}
+            <button className="np-button" disabled={busy} onClick={() => void enableDkim()}>
+              Enable DKIM (mint key + publish DNS)
+            </button>{' '}
+            {dkim?.selector && (
+              <button className="np-button" disabled={busy} onClick={() => void rotateDkim()}>
+                Rotate key
+              </button>
+            )}
+            {dkimRecord && <pre className="np-pre">{dkimRecord}</pre>}
+
+            <h3>SPF</h3>
+            <p className="np-muted">
+              Publishes <code>v=spf1 mx a ~all</code> at the zone apex (idempotent — replaces an
+              earlier panel-written SPF record). Custom records can be set via the API.
+            </p>
+            <button className="np-button" disabled={busy} onClick={() => void applySpf()}>
+              Publish SPF record
+            </button>
+
+            <h3>DMARC</h3>
+            <form onSubmit={applyDmarc} className="np-form">
+              <label>
+                Policy
+                <select value={dmarcPolicy} onChange={(e) => setDmarcPolicy(e.target.value)}>
+                  <option value="none">none — monitor only</option>
+                  <option value="quarantine">quarantine — receivers may junk failures</option>
+                  <option value="reject">reject — receivers drop failures</option>
+                </select>
+              </label>
+              <label>
+                Reports to (rua, optional)
+                <input value={dmarcRua} onChange={(e) => setDmarcRua(e.target.value)} placeholder="dmarc-reports@example.com" />
+              </label>
+              <button className="np-button" disabled={busy}>
+                Publish DMARC record
+              </button>
+            </form>
+            <p className="np-muted">
+              DKIM/SPF/DMARC writes go through the panel&apos;s DNS module — they require a managed
+              zone for this domain (create it on the DNS page first). Without one, the endpoints
+              return the record for manual publishing instead of pretending it was done.
+            </p>
+          </section>
         </>
       )}
+
+      <section className="np-card">
+        <h2>Mail queue (server-wide)</h2>
+        <button className="np-button" disabled={busy} onClick={() => void loadQueue()}>
+          Read queue
+        </button>{' '}
+        <button className="np-button" disabled={busy || !queue} onClick={() => void flushQueue()}>
+          Flush all
+        </button>
+        {queue ? (
+          queue.total === 0 ? (
+            <p className="np-empty">Queue is empty ({queue.source}).</p>
+          ) : (
+            <table className="np-table">
+              <thead>
+                <tr>
+                  <th>Queue ID</th>
+                  <th>Size</th>
+                  <th>Arrived</th>
+                  <th>Sender → Recipient</th>
+                  <th>Reason</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {queue.queue.map((q) => (
+                  <tr key={q.queue_id}>
+                    <td className="np-mono">{q.queue_id}</td>
+                    <td>{q.size}</td>
+                    <td>{q.arrival}</td>
+                    <td>
+                      {q.sender} → {q.recipient ?? '—'}
+                    </td>
+                    <td className="np-muted">{q.reason ?? '—'}</td>
+                    <td>
+                      <button className="np-button" disabled={busy} onClick={() => void flushQueue(q.queue_id)}>
+                        Flush
+                      </button>{' '}
+                      <button className="np-button" disabled={busy} onClick={() => void retryMessage(q.queue_id)}>
+                        Requeue
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        ) : (
+          <p className="np-muted">Queue state comes straight from postqueue — nothing cached, nothing assumed.</p>
+        )}
+      </section>
+
+      <section className="np-card">
+        <h2>SMTP relay (server-wide)</h2>
+        {relay ? (
+          <p>
+            Current: <span className={`np-badge ${relay.is_active ? 'ok' : ''}`}>{relay.is_active ? 'profile active' : 'not configured'}</span>{' '}
+            {relay.provider !== 'none' && (
+              <>
+                {relay.provider} via {relay.smtp_host}:{relay.smtp_port} as {relay.username || '—'}{' '}
+                ({relay.has_credentials ? 'credentials stored encrypted' : 'no credentials stored'})
+              </>
+            )}
+          </p>
+        ) : (
+          <p className="np-muted">Relay profile loads on demand.</p>
+        )}
+        <button className="np-button" disabled={busy} onClick={() => void loadRelay()}>
+          Load relay profile
+        </button>
+        <form onSubmit={saveRelay} className="np-form">
+          <h3>Configure</h3>
+          <label>
+            Provider
+            <select value={relayProvider} onChange={(e) => setRelayProvider(e.target.value)}>
+              <option value="ses">Amazon SES</option>
+              <option value="mailgun">Mailgun</option>
+              <option value="postmark">Postmark</option>
+              <option value="custom">Custom SMTP</option>
+            </select>
+          </label>
+          <label>
+            SMTP host
+            <input value={relayHost} onChange={(e) => setRelayHost(e.target.value)} placeholder="smtp.provider.example" required />
+          </label>
+          <label>
+            Port
+            <input value={relayPort} onChange={(e) => setRelayPort(e.target.value)} />
+          </label>
+          <label>
+            Username
+            <input value={relayUser} onChange={(e) => setRelayUser(e.target.value)} />
+          </label>
+          <label>
+            Password (leave blank to keep stored credentials)
+            <input type="password" value={relayPassword} onChange={(e) => setRelayPassword(e.target.value)} />
+          </label>
+          <button className="np-button" disabled={busy || !relayHost.trim()}>
+            Save relay profile
+          </button>
+        </form>
+        <p className="np-muted">
+          Per ADR-0002 this is the server-wide relay — the delivery default for every account.
+          The profile is stored with AES-256-GCM encryption (ADR-0009); the Postfix transport
+          wiring lands with the config-engine pipeline and the badge above stays honest until then.
+          Per-account overrides ship in v1.2.
+        </p>
+      </section>
     </Shell>
   );
 }
