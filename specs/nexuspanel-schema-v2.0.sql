@@ -130,9 +130,11 @@ CREATE TABLE user_hosting_account_access (
   role                text NOT NULL,            -- owner | admin | member | readonly
   granted_by_user_id  uuid REFERENCES users(id),
   created_at          timestamptz NOT NULL DEFAULT now(),
-  revoked_at          timestamptz,
-  UNIQUE (user_id, hosting_account_id) WHERE revoked_at IS NULL
+  revoked_at          timestamptz
 );
+CREATE UNIQUE INDEX uq_user_account_access_active
+  ON user_hosting_account_access (user_id, hosting_account_id)
+  WHERE revoked_at IS NULL;
 CREATE INDEX ON user_hosting_account_access (hosting_account_id);
 
 CREATE TABLE resellers (
@@ -176,9 +178,11 @@ CREATE TABLE subdomains (
   document_root       text NOT NULL,
   php_version         text,
   created_at          timestamptz NOT NULL DEFAULT now(),
-  deleted_at          timestamptz,
-  UNIQUE (domain_id, name) WHERE deleted_at IS NULL
+  deleted_at          timestamptz
 );
+CREATE UNIQUE INDEX uq_subdomains_active
+  ON subdomains (domain_id, name)
+  WHERE deleted_at IS NULL;
 
 CREATE TABLE domain_aliases (
   id                  uuid PRIMARY KEY DEFAULT uuid_generate_v7(),
@@ -223,9 +227,11 @@ CREATE TABLE mailboxes (
   is_active           boolean NOT NULL DEFAULT true,
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now(),
-  deleted_at          timestamptz,
-  UNIQUE (mail_domain_id, local_part) WHERE deleted_at IS NULL
+  deleted_at          timestamptz
 );
+CREATE UNIQUE INDEX uq_mailboxes_active
+  ON mailboxes (mail_domain_id, local_part)
+  WHERE deleted_at IS NULL;
 
 CREATE TABLE mail_aliases (
   id                  uuid PRIMARY KEY DEFAULT uuid_generate_v7(),
@@ -333,9 +339,11 @@ CREATE TABLE databases (
   db_password_hash    bytea NOT NULL,
   size_mb             integer NOT NULL DEFAULT 0,
   created_at          timestamptz NOT NULL DEFAULT now(),
-  deleted_at          timestamptz,
-  UNIQUE (engine, name) WHERE deleted_at IS NULL
+  deleted_at          timestamptz
 );
+CREATE UNIQUE INDEX uq_databases_active
+  ON databases (engine, name)
+  WHERE deleted_at IS NULL;
 CREATE INDEX ON databases (hosting_account_id);
 
 -- ============================================================================
