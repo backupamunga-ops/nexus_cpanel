@@ -1,9 +1,12 @@
 import { Controller, Get } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 
 /** Platform meta endpoints (API spec §4.25). */
 @Controller()
 export class HealthController {
   private readonly startedAt = Date.now();
+
+  constructor(private readonly prisma: PrismaService) {}
 
   /** Liveness: no DB, no agent. */
   @Get('health')
@@ -11,10 +14,21 @@ export class HealthController {
     return { status: 'ok' };
   }
 
-  /** Readiness: DB + agent reachability (enforced from P1 when Prisma lands). */
+  /** Readiness: DB reachability (agent checks are on-demand, not gated). */
   @Get('ready')
-  ready(): Record<string, string | boolean> {
-    return { status: 'ok', database: 'pending-p1', agent: 'on-demand' };
+  async ready(): Promise<Record<string, string | boolean | number>> {
+    let database = 'ok';
+    try {
+      await this.prisma.$queryRaw`SELECT 1`;
+    } catch {
+      database = 'error';
+    }
+    return {
+      status: database === 'ok' ? 'ok' : 'degraded',
+      database,
+      agent: 'on-demand',
+      uptime_s: Math.floor((Date.now() - this.startedAt) / 1000),
+    };
   }
 
   /** Panel version, agent protocol version, schema version. */

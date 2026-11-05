@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import { AccountsService } from './accounts.service';
 import { RequirePermission } from '../common/permissions';
 import { AuthContext, CurrentUser } from '../auth/request-context';
@@ -10,8 +19,14 @@ export class AccountsController {
 
   @Get()
   @RequirePermission('account:list')
-  list(): unknown {
+  async list(): Promise<unknown> {
     return this.accounts.list();
+  }
+
+  @Get(':id')
+  @RequirePermission('account:read')
+  async get(@Param('id') id: string): Promise<unknown> {
+    return this.accounts.get(id);
   }
 
   @Post()
@@ -20,25 +35,43 @@ export class AccountsController {
     @Body() body: { username?: string; package_id?: string },
     @CurrentUser() user: AuthContext,
   ): Promise<unknown> {
-    return this.accounts.create(String(body.username ?? ''), String(body.package_id ?? 'pkg-default'), user.userId);
+    return this.accounts.create(
+      String(body.username ?? ''),
+      String(body.package_id ?? 'pkg-default'),
+      user.userId,
+    );
   }
 
-  @Get(':username/usage')
+  @Patch(':id')
+  @RequirePermission('account:update')
+  async update(@Param('id') id: string, @Body() _body: unknown): Promise<unknown> {
+    // Full PATCH semantics (primary_domain, quotas_override) land in P2.
+    void _body;
+    return this.accounts.get(id);
+  }
+
+  @Get(':id/usage')
   @RequirePermission('account:read')
-  async usage(@Param('username') username: string): Promise<unknown> {
-    return this.accounts.usage(username);
+  async usage(@Param('id') id: string): Promise<unknown> {
+    return this.accounts.usage(id);
   }
 
-  @Post(':username/suspend')
+  @Post(':id/suspend')
   @RequirePermission('account:suspend')
-  async suspend(@Param('username') username: string, @CurrentUser() user: AuthContext): Promise<unknown> {
-    return this.accounts.suspend(username, user.userId);
+  async suspend(@Param('id') id: string, @CurrentUser() user: AuthContext): Promise<unknown> {
+    return this.accounts.suspend(id, user.userId);
   }
 
-  @Delete(':username')
+  @Post(':id/resume')
+  @RequirePermission('account:resume')
+  async resume(@Param('id') id: string, @CurrentUser() user: AuthContext): Promise<unknown> {
+    return this.accounts.resume(id, user.userId);
+  }
+
+  @Delete(':id')
   @HttpCode(204)
   @RequirePermission('account:delete')
-  async remove(@Param('username') username: string, @CurrentUser() user: AuthContext): Promise<void> {
-    await this.accounts.remove(username, user.userId);
+  async remove(@Param('id') id: string, @CurrentUser() user: AuthContext): Promise<void> {
+    await this.accounts.remove(id, user.userId);
   }
 }

@@ -1,7 +1,7 @@
 import { UnauthorizedException } from '@nestjs/common';
 import * as crypto from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuditService } from '../audit/audit.service';
+import { InMemoryAuditService } from '../audit/audit.service';
 import { ARGON2ID_PARAMS, AuthService, PasswordService } from './auth.service';
 import { JwtService } from './jwt.service';
 import { hashRefreshToken } from './refresh-token';
@@ -124,7 +124,7 @@ async function makeAuth(user: object | null) {
       updateMany: jest.fn(),
     },
   };
-  const audit = new AuditService();
+  const audit = new InMemoryAuditService();
   const jwt = new JwtService('unit-test-secret-0123456789abcdefghijklmnop');
   const auth = new AuthService(prisma as unknown as PrismaService, jwt, audit);
   await auth.whenBootstrapSeeded();

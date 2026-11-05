@@ -5,7 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuditService } from '../audit/audit.service';
+import { AuditAppender, InjectAudit } from '../audit/audit.service';
 import { JwtService } from './jwt.service';
 import { hashRefreshToken, mintRefreshToken, refreshSessionId } from './refresh-token';
 import * as crypto from 'node:crypto';
@@ -119,7 +119,7 @@ export class AuthService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
-    private readonly audit: AuditService,
+    @InjectAudit() private readonly audit: AuditAppender,
   ) {
     const email = process.env.DEV_ADMIN_EMAIL;
     const password = process.env.DEV_ADMIN_PASSWORD;
@@ -170,7 +170,7 @@ export class AuthService implements OnModuleInit {
     // Lockout gates BEFORE any password work: a locked account must not burn
     // Argon2id CPU for an attacker (and the uniform 401 hides account state).
     if (known && user!.locked_until && user!.locked_until > new Date()) {
-      this.audit.append('auth.login', { email: normalized, reason: 'locked' }, 'failure', user!.id);
+      await this.audit.append({ operation: 'auth.login', parameters: { email: normalized, reason: 'locked' }, outcome: 'failure', actorUserId: user!.id });
       throw new UnauthorizedException('invalid credentials');
     }
 
@@ -182,17 +182,17 @@ export class AuthService implements OnModuleInit {
       if (known) {
         await this.registerFailedAttempt(user!);
       }
-      this.audit.append(
-        'auth.login',
-        { email: normalized, reason: known ? 'bad_password' : 'unknown_user' },
-        'failure',
-        known ? user!.id : null,
-      );
+      await this.audit.append({
+        operation: 'auth.login',
+        parameters: { email: normalized, reason: known ? 'bad_password' : 'unknown_user' },
+        outcome: 'failure',
+        actorUserId: known ? user!.id : null,
+      });
       throw new UnauthorizedException('invalid credentials');
     }
     if (user!.totp_enabled_at) {
       // 2FA (C2) lands in P2; never silently bypass an enrolled factor.
-      this.audit.append('auth.login', { email: normalized, reason: 'totp_required' }, 'failure', user!.id);
+      await this.audit.append({ operation: 'auth.login', parameters: { email: normalized, reason: 'totp_required' }, outcome: 'failure', actorUserId: user!.id });
       throw new UnauthorizedException('totp required');
     }
 
@@ -220,7 +220,7 @@ export class AuthService implements OnModuleInit {
       },
     });
 
-    this.audit.append('auth.login', { email: normalized, session_id: session.id }, 'success', user!.id);
+    await this.audit.append({ operation: 'auth.login', parameters: { email: normalized, session_id: session.id }, outcome: 'success', actorUserId: user!.id });
     this.logger.log(`login ok (${normalized}, session ${session.id})`);
     return this.tokenPair(user!, minted.token, session.id, ctx);
   }
@@ -247,12 +247,12 @@ export class AuthService implements OnModuleInit {
         where: { user_id: session.user_id, revoked_at: null },
         data: { revoked_at: new Date() },
       });
-      this.audit.append(
-        'auth.session.reuse_detected',
-        { session_id: session.id, user_id: session.user_id },
-        'failure',
-        session.user_id,
-      );
+      await this.audit.append({
+        operation: 'auth.session.reuse_detected',
+        parameters: { session_id: session.id, user_id: session.user_id },
+        outcome: 'failure',
+        actorUserId: session.user_id,
+      });
       this.logger.warn(`refresh reuse detected (session ${session.id}) — all sessions revoked`);
       throw new UnauthorizedException('invalid refresh token');
     }
@@ -261,7 +261,7 @@ export class AuthService implements OnModuleInit {
         where: { id: session.id },
         data: { revoked_at: new Date() },
       });
-      this.audit.append('auth.refresh', { session_id: session.id, reason: 'fingerprint_mismatch' }, 'failure', session.user_id);
+      await this.audit.append({ operation: 'auth.refresh', parameters: { session_id: session.id, reason: 'fingerprint_mismatch' }, outcome: 'failure', actorUserId: session.user_id });
       throw new UnauthorizedException('invalid refresh token');
     }
 
@@ -276,7 +276,7 @@ export class AuthService implements OnModuleInit {
         ip: sanitizeIp(ctx.ip),
       },
     });
-    this.audit.append('auth.refresh', { session_id: session.id }, 'success', session.user_id);
+    await this.audit.append({ operation: 'auth.refresh', parameters: { session_id: session.id }, outcome: 'success', actorUserId: session.user_id });
     return this.tokenPair(session.user, rotated.token, session.id, ctx);
   }
 
@@ -285,7 +285,7 @@ export class AuthService implements OnModuleInit {
       where: { id: sessionId, user_id: userId, revoked_at: null },
       data: { revoked_at: new Date() },
     });
-    this.audit.append('auth.logout', { session_id: sessionId }, 'success', userId);
+    await this.audit.append({ operation: 'auth.logout', parameters: { session_id: sessionId }, outcome: 'success', actorUserId: userId });
   }
 
   private tokenPair(
