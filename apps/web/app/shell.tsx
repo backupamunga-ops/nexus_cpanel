@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { logout, SessionUser } from '../lib/api';
 
 const NAV = [
   { href: '/', label: 'Dashboard' },
@@ -12,7 +13,17 @@ const NAV = [
  * M0 shell: sidebar + dashboard. Milestone P2 introduces the full
  * navigation driven by RBAC permissions (screen specs: WS5).
  */
-export default function Shell({ children, active }: { children: React.ReactNode; active: string }) {
+export default function Shell({
+  children,
+  active,
+  user,
+  onLogout,
+}: {
+  children: React.ReactNode;
+  active: string;
+  user?: SessionUser | null;
+  onLogout?: () => void;
+}) {
   const [version, setVersion] = useState<string>('…');
 
   useEffect(() => {
@@ -33,11 +44,24 @@ export default function Shell({ children, active }: { children: React.ReactNode;
             </Link>
           ))}
         </nav>
-        <p style={{ marginTop: 24, color: 'var(--np-muted)', fontSize: 12 }}>
+        <div style={{ marginTop: 24, color: 'var(--np-muted)', fontSize: 12 }}>
           {version}
           <br />
           <span className="np-badge">M0 preview</span>
-        </p>
+        </div>
+        {user && (
+          <div style={{ marginTop: 16, fontSize: 12, borderTop: '1px solid var(--np-border)', paddingTop: 12 }}>
+            <div style={{ color: 'var(--np-fg)' }}>{user.display_name}</div>
+            <div style={{ color: 'var(--np-muted)' }}>{user.email}</div>
+            <button
+              className="np-button"
+              style={{ marginTop: 8, width: '100%', padding: '4px 8px', fontSize: 12 }}
+              onClick={() => void logout()}
+            >
+              Sign out
+            </button>
+          </div>
+        )}
       </aside>
       <main className="np-main">{children}</main>
     </div>

@@ -1,11 +1,12 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
+import { login } from '../../lib/api';
 
 /**
- * M0 login (dev bootstrap admin from DEV_ADMIN_EMAIL/DEV_ADMIN_PASSWORD).
- * P2 replaces this with the full auth screen: TOTP prompt, session list,
- * password policy messaging — specs: API §4.1, controls C1–C3.
+ * M0 login — real users-table authentication (Argon2id C1, JWT + rotating
+ * refresh C3). P2 replaces this with the full auth screen: TOTP prompt,
+ * session list, password policy messaging — specs: API §4.1, controls C1–C3.
  */
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -18,19 +19,10 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch('/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      if (!res.ok) {
-        const problem = await res.json().catch(() => null);
-        setError(problem?.detail ?? 'Login failed.');
-        return;
-      }
-      localStorage.setItem('nexuspanel_session', JSON.stringify(await res.json()));
-      window.location.href = '/';
-    } finally {
+      await login(email, password);
+      window.location.href = '/accounts';
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed.');
       setBusy(false);
     }
   }
@@ -40,7 +32,8 @@ export default function LoginPage() {
       <form onSubmit={onSubmit} className="np-card" style={{ width: 360 }} aria-label="Sign in">
         <h1 className="np-title">Sign in to NexusPanel</h1>
         <p className="np-subtitle" style={{ marginBottom: 16 }}>
-          Development build — Argon2-class hashing enforced (C1).
+          Sessions are hash-locked: Argon2id passwords (C1), 15-minute tokens with
+          rotating refresh bound to this device (C3).
         </p>
         <label htmlFor="email" style={{ display: 'block', marginBottom: 4 }}>
           Email
@@ -62,7 +55,6 @@ export default function LoginPage() {
           className="np-input"
           type="password"
           required
-          minLength={12}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="current-password"
