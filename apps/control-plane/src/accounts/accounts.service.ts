@@ -38,7 +38,7 @@ export class AccountsService {
     return { data: [...this.accounts.values()] };
   }
 
-  async create(username: string, packageId: string): Promise<ManagedAccount> {
+  async create(username: string, packageId: string, actorUserId?: string): Promise<ManagedAccount> {
     if (!USERNAME_RE.test(username) || RESERVED.has(username)) {
       throw new BadRequestException('username violates policy');
     }
@@ -55,17 +55,26 @@ export class AccountsService {
       homedir: result.homedir,
     };
     this.accounts.set(username, account);
-    this.audit.append('account.create', { username, package_id: packageId }, 'success');
+    this.audit.append('account.create', { username, package_id: packageId }, 'success', actorUserId ?? null);
     this.logger.log(`created hosting account ${username} (uid ${result.uid})`);
     return account;
   }
 
-  async suspend(username: string): Promise<ManagedAccount> {
+  async suspend(username: string, actorUserId?: string): Promise<ManagedAccount> {
     const account = this.requireAccount(username);
     await this.agent.accountSuspend(username);
     account.status = 'suspended';
-    this.audit.append('account.suspend', { username }, 'success');
+    this.audit.append('account.suspend', { username }, 'success', actorUserId ?? null);
     return account;
+  }
+
+  /** Soft-removes the account from the panel and deletes the OS user via the agent. */
+  async remove(username: string, actorUserId?: string): Promise<void> {
+    this.requireAccount(username);
+    await this.agent.accountDelete(username);
+    this.accounts.delete(username);
+    this.audit.append('account.delete', { username }, 'success', actorUserId ?? null);
+    this.logger.log(`deleted hosting account ${username}`);
   }
 
   async usage(username: string): Promise<Record<string, number | string>> {
