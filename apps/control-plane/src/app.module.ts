@@ -8,6 +8,7 @@ import { SettingsModule } from './settings/settings.module';
 import { SitesModule } from './sites/sites.module';
 import { FilesModule } from './files/files.module';
 import { SshKeysModule } from './sshkeys/sshkeys.module';
+import { SslModule } from './ssl/ssl.module';
 import { AgentModule } from './agent/agent.module';
 import { AuditModule } from './audit/audit.module';
 import { EventsModule } from './events/events.module';
@@ -26,6 +27,7 @@ import { PrismaModule } from './prisma/prisma.module';
     SitesModule,
     FilesModule,
     SshKeysModule,
+    SslModule,
     AgentModule,
     AuditModule,
     EventsModule,

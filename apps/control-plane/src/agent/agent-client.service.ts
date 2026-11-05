@@ -395,6 +395,52 @@ export class AgentClientService {
     return r.result;
   }
 
+  // ---- P3: ssl (§4.11) ------------------------------------------------------
+
+  async sslIssueAcme(
+    domain: string,
+    email: string,
+    webroot: string,
+  ): Promise<{
+    domain: string;
+    issuer: string;
+    san_names: string[];
+    expires_at: string;
+    cert_pem: string;
+    key_pem: string;
+  }> {
+    const r = await this.call<{
+      domain: string;
+      issuer: string;
+      san_names: string[];
+      expires_at: string;
+      cert_pem: string;
+      key_pem: string;
+    }>('ssl.issue_acme', { domain, email, webroot, challenge_type: 'http01', san: [] });
+    return r.result;
+  }
+
+  async sslInstallCert(
+    domain: string,
+    cert_pem: string,
+    key_pem: string,
+  ): Promise<{ domain: string; issuer: string; san_names: string[]; expires_at: string; common_name?: string; health_check: string }> {
+    const r = await this.call<{
+      domain: string;
+      issuer: string;
+      san_names: string[];
+      expires_at: string;
+      common_name?: string;
+      health_check: string;
+    }>('ssl.install_cert', { domain, cert_pem, key_pem });
+    return r.result;
+  }
+
+  async sslRevoke(domain: string): Promise<{ status: string; existed: boolean }> {
+    const r = await this.call<{ status: string; existed: boolean }>('ssl.revoke', { domain });
+    return r.result;
+  }
+
   /** Exposed for tests: the exact bytes that were signed. */
   static signatureInput(
     method: string,

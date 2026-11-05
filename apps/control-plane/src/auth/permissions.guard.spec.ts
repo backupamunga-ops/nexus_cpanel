@@ -42,6 +42,7 @@ function harness(opts: {
     domainAliase: { findFirst: jest.fn().mockResolvedValue(null) },
     redirect: { findFirst: jest.fn().mockResolvedValue(null) },
     sshKey: { findFirst: jest.fn().mockResolvedValue(null) },
+    certificate: { findFirst: jest.fn().mockResolvedValue(null) },
   };
   const reflector = {
     getAllAndOverride: jest.fn((_key: string) => {

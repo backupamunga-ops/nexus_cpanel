@@ -271,6 +271,12 @@ export class PermissionsGuard implements CanActivate {
     });
     if (sshKey) return sshKey.hosting_account_id;
 
+    const certificate = await this.prisma.certificate.findFirst({
+      where: { id },
+      select: { domain: { select: { hosting_account_id: true } } },
+    });
+    if (certificate) return certificate.domain.hosting_account_id;
+
     return null;
   }
 }
