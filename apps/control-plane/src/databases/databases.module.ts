@@ -12,5 +12,6 @@ import { AuditModule } from '../audit/audit.module';
   imports: [AgentModule, AuditModule],
   controllers: [DatabasesController],
   providers: [DatabasesService],
+  exports: [DatabasesService], // B14 apps: one-click WP installs provision DBs through B09 policy
 })
 export class DatabasesModule {}

@@ -1,12 +1,15 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditAppender, InjectAudit } from '../audit/audit.service';
 import { MalwareService } from '../security/malware.service';
 import { BackupsService } from '../backups/backups.service';
+import { GitService } from '../apps/git.service';
 import { Actor } from '../sites/sites.service';
 
 /**
@@ -48,6 +51,7 @@ export class JobsService {
     @InjectAudit() private readonly audit: AuditAppender,
     private readonly malware: MalwareService,
     private readonly backups: BackupsService,
+    @Inject(forwardRef(() => GitService)) private readonly git: GitService,
   ) {
     // Registered handlers (explicit allowlist). Backup runs keyed by the
     // originating backup job id ride in payload.job_id.
@@ -58,6 +62,12 @@ export class JobsService {
       const jobId = String(payload.job_id ?? '');
       if (!jobId) throw new ConflictException('job payload lacks backup job id');
       return this.backups.runJob(actor, jobId);
+    });
+    // B14: re-run a failed push-to-deploy by deployment id.
+    this.handlers.set('git.deploy', (actor, payload) => {
+      const deploymentId = String(payload.deployment_id ?? '');
+      if (!deploymentId) throw new ConflictException('job payload lacks deployment id');
+      return this.git.deployNow(actor, deploymentId);
     });
   }
 

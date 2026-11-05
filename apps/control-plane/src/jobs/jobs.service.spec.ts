@@ -39,6 +39,7 @@ function harness() {
     audit,
     { startScan: jest.fn(async () => ({ status: 'success' })) } as never,
     { runJob: jest.fn(async () => ({})) } as never,
+    { deployNow: jest.fn(async () => ({})) } as never, // B14 git.deploy handler
   );
   return { svc, audit, rows };
 }

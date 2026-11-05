@@ -64,6 +64,11 @@ export const WEB_KNOWN_PERMISSIONS: readonly string[] = [
   'ftp:update',
   'firewall:manage',
   'firewall:read',
+  'apps:read', // B14 (ADR-0019)
+  'apps:manage',
+  'git:read',
+  'git:manage',
+  'git:deploy',
   'mail:create',
   'mail:delete',
   'mail:list',

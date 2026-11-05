@@ -1145,6 +1145,137 @@ export class AgentClientService {
     return r.result;
   }
 
+  // ---- apps.* + git.* (ADR-0019) — B14 --------------------------------------
+
+  async appsInstallWordpress(params: {
+    username: string;
+    path: string;
+    url: string;
+    title: string;
+    admin_user: string;
+    admin_email: string;
+    db_name: string;
+    db_user: string;
+    db_password: string;
+    db_host?: string;
+  }): Promise<{
+    status: string;
+    path: string;
+    version: string;
+    admin_user: string;
+    admin_password: string;
+    executed_as: string;
+    log: string;
+  }> {
+    const r = await this.call<{
+      status: string;
+      path: string;
+      version: string;
+      admin_user: string;
+      admin_password: string;
+      executed_as: string;
+      log: string;
+    }>('apps.install_wordpress', params);
+    return r.result;
+  }
+
+  async appsUpdateWordpress(params: {
+    username: string;
+    path: string;
+  }): Promise<{ status: string; path: string; version: string; log: string }> {
+    const r = await this.call<{ status: string; path: string; version: string; log: string }>(
+      'apps.update_wordpress',
+      params,
+    );
+    return r.result;
+  }
+
+  async appsRunWpCli(params: {
+    username: string;
+    path: string;
+    args: string[];
+  }): Promise<{ status: string; executed_as: string; output: string }> {
+    const r = await this.call<{ status: string; executed_as: string; output: string }>(
+      'apps.wp_cli',
+      params,
+    );
+    return r.result;
+  }
+
+  async appsStagingClone(params: {
+    username: string;
+    source_path: string;
+    staging_path: string;
+    staging_url: string;
+    prod_url: string;
+    db_name: string;
+    db_user: string;
+    db_password: string;
+    db_host?: string;
+  }): Promise<{
+    status: string;
+    source_path: string;
+    staging_path: string;
+    staging_url: string;
+    executed_as: string;
+    log: string;
+  }> {
+    const r = await this.call<{
+      status: string;
+      source_path: string;
+      staging_path: string;
+      staging_url: string;
+      executed_as: string;
+      log: string;
+    }>('apps.staging_clone', params);
+    return r.result;
+  }
+
+  async gitDeploy(params: {
+    username: string;
+    domain: string;
+    repo_url: string;
+    branch: string;
+    sha?: string;
+    deploy_path: string;
+  }): Promise<{ status: string; release_id: string; sha: string; path: string; log: string }> {
+    const r = await this.call<{
+      status: string;
+      release_id: string;
+      sha: string;
+      path: string;
+      log: string;
+    }>('git.deploy', params);
+    return r.result;
+  }
+
+  async gitDeployHistory(params: {
+    username: string;
+    domain: string;
+    deploy_path: string;
+  }): Promise<{
+    releases: Array<{ release_id: string; sha: string; created_at: string; active: boolean }>;
+    current: string;
+    path: string;
+  }> {
+    const r = await this.call<{
+      releases: Array<{ release_id: string; sha: string; created_at: string; active: boolean }>;
+      current: string;
+      path: string;
+    }>('git.deploy_history', params);
+    return r.result;
+  }
+
+  async gitRollback(params: {
+    username: string;
+    domain: string;
+    deploy_path: string;
+    release_id: string;
+  }): Promise<{ status: string; release_id: string }> {
+    const r = await this.call<{ status: string; release_id: string }>('git.rollback', params);
+    return r.result;
+  }
+
   /** Exposed for tests: the exact bytes that were signed. */
   static signatureInput(
     method: string,

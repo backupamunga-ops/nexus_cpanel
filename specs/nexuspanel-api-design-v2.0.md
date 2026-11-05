@@ -320,6 +320,45 @@ The full endpoint catalog is large. Below is the **complete catalog** with metho
 | GET | `/domains/{id}/git/deployments` | jwt/token | `git:read` |
 | POST | `/domains/{id}/git/rollback` | jwt/token | `git:deploy` |
 
+The git surface is **live at B14 (ADR-0019)** with flat collection routes
+(panel-side, DirectAdmin-simple) plus the signature-authenticated receiver:
+
+| Method | Path | Auth | Permission |
+|---|---|---|---|
+| GET | `/git` | jwt/token | `git:read` |
+| POST | `/git` | jwt/token | `git:manage` |
+| POST | `/git/{id}/deploy` | jwt/token | `git:deploy` |
+| GET | `/git/{id}/history` | jwt/token | `git:read` |
+| POST | `/git/{id}/rollback` | jwt/token | `git:deploy` |
+| POST | `/git/webhook/{id}` | **public** (HMAC) | — |
+
+The receiver verifies GitHub (`X-Hub-Signature-256`), GitLab
+(`X-Gitlab-Token`) and Bitbucket (`X-Hub-Signature`) against the
+per-deployment secret (shown once at registration, SecretBox-encrypted at
+rest). Non-push events and other branches are answered with
+`{ status: 'ignored', reason }` — they never deploy. Deploys clone into
+release directories and atomically swap the deploy-path symlink; the
+releases dir is the history and rollback re-points it.
+
+### 4.7a Apps — `/api/v1/apps` (B14, live, ADR-0019)
+
+| Method | Path | Auth | Permission |
+|---|---|---|---|
+| GET | `/apps` | jwt/token | `apps:read` |
+| POST | `/apps/install` | jwt/token | `apps:manage` |
+| POST | `/apps/{id}/update` | jwt/token | `apps:manage` |
+| POST | `/apps/{id}/wp-cli` | jwt/token | `apps:manage` |
+| POST | `/apps/{id}/staging` | jwt/token | `apps:manage` |
+
+WordPress first (ADR-0019): `install` provisions a fresh MariaDB database
+through B09 policy (or accepts caller credentials with `create_db: false`),
+installs as the ACCOUNT USER via WP-CLI, and returns the generated WP admin
+password ONCE — it is never stored, audited or logged. `wp-cli` is a verb
+allowlist (core|plugin|theme|user|search-replace|cache|rewrite|option), not
+an exec hatch. `staging` clones the install to `<label>.<domain>` with its
+own database, config swap and URL rewrite (registry:
+`staging_environments`).
+
 ### 4.8 Email — `/api/v1/mail`
 
 | Method | Path | Auth | Permission |

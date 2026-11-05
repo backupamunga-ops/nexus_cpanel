@@ -139,6 +139,14 @@ if (EMAIL && PASSWORD) {
   await go('/waf', 900);
   await shot('23-waf.png');
 
+  // B14: apps & git deploys panel (DirectAdmin-simple: install form +
+  // installed apps + git deployments with history/rollback).
+  await go('/apps', 900);
+  await shot('28-apps.png');
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.waitForTimeout(400);
+  await shot('29-apps-git.png');
+
   await go('/jobs', 900);
   await shot('24-jobs.png');
 
