@@ -58,6 +58,11 @@ func main() {
 		Verifier:   verifier,
 		WAL:        queue,
 		CgroupRoot: *cgroupRoot,
+		// dns.* (§4.9): PowerDNS API + tooling come from the environment.
+		// A missing key fails dns commands loudly (precondition) — never silently.
+		PdnsAPIURL:   os.Getenv("NEXUSAGENT_PDNS_API_URL"),
+		PdnsAPIKey:   os.Getenv("NEXUSAGENT_PDNS_API_KEY"),
+		PdnsServerID: os.Getenv("NEXUSAGENT_PDNS_SERVER_ID"),
 	}
 	registry := commands.NewRegistry(deps)
 

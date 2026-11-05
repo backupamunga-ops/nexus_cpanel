@@ -153,16 +153,19 @@ Allowed service names: `nginx`, `apache2`, `php8.1-fpm` … `php8.4-fpm`, `postf
 | `mail.queue_retry` | `message_id` |
 
 ### 4.9 `dns.*`
-| Method | Params |
-|---|---|
-| `dns.create_zone` | `zone, records` |
-| `dns.delete_zone` | `zone` |
-| `dns.apply_records` | `zone, records[]` (full replace) |
-| `dns.reload` | — |
-| `dns.enable_dnssec` | `zone` |
-| `dns.disable_dnssec` | `zone` |
-| `dns.axfr_export` | `zone` |
-| `dns.zone_check` | `zone` |
+| Method | Params | Returns | Notes |
+|---|---|---|---|
+| `dns.create_zone` | `zone, records` | `status, zone, kind, record_count, soa_seeded` | Native zone via the PowerDNS HTTP API; SOA seeded (`ns1.<zone>`, `hostmaster.<zone>`) and reported honestly when absent; `soa_edit_api=DEFAULT`; conflict on existing zone |
+| `dns.delete_zone` | `zone` | `status, zone` | Absent is a success |
+| `dns.apply_records` | `zone, records[]` (full replace) | `status, zone, applied, removed` | Diff computed against live PowerDNS state; SOA is protected (never deleted/replaced — serial-managed via `soa_edit_api`) |
+| `dns.reload` | — | `status, detail` | `skipped` with reason when `pdns_control` is absent (HTTP API + SQL backend applies immediately) — honest, not silent |
+| `dns.enable_dnssec` | `zone` | `status, zone, ds[], dnskey[], keys[]` | `pdnsutil secure-zone` + `show-zone` parse; loud failure if no material appears |
+| `dns.disable_dnssec` | `zone` | `status, zone` | `pdnsutil unsecure-zone` |
+| `dns.axfr_export` | `zone` | `zone, content` | Transfer-format export endpoint; read-only (§6) |
+| `dns.zone_check` | `zone` | `zone, ok, issues[]` | `pdnsutil check-zone` verbatim; `[Error]` lines flip `ok`; read-only (§6) |
+| `dns.get_dnssec` | `zone` | `zone, enabled, ds[], dnskey[], keys[]` | ADR-0012 amendment: live DNSSEC state read; read-only (§6) |
+
+Record rules (all methods): types `A, AAAA, CNAME, MX, TXT, SRV, CAA, NS`; names are relative to the zone (`www`, `a.b`, `*.sub`) or absolute with a trailing dot — absolute out-of-zone names are rejected; MX requires `priority`, SRV requires `priority/weight/port` (composed into wire content); TTL 60–604800 (default 3600); CNAME at apex rejected; PowerDNS validation errors surface verbatim as precondition errors.
 
 ### 4.10 `database.*`
 | Method | Params |
