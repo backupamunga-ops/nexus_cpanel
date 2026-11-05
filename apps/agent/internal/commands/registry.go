@@ -48,6 +48,11 @@ type Deps struct {
         PostsuperBinary   string       // postsuper path; empty = exec.LookPath (tests inject a fake)
         MysqlClientBinary string       // database.* client binary; empty = LookPath mariadb|mysql
         MysqlDumpBinary   string       // mariadb-dump path; empty = LookPath mariadb-dump|mysqldump
+        BackupRoot        string       // backup.* confined root for local destinations; overridable in tests
+        AgeBinary         string       // age path; empty = LookPath (tests inject a fake; C15)
+        AgeIdentityPath   string       // age identity file for encrypted restores; empty = loud precondition
+        SftpBinary        string       // sftp path; empty = LookPath (tests inject a fake)
+        RcloneBinary      string       // rclone path; empty = LookPath (s3 destinations)
 }
 
 // Registry maps method names to handlers.
@@ -73,6 +78,9 @@ func NewRegistry(deps Deps) *Registry {
         }
         if deps.PhpRoot == "" {
                 deps.PhpRoot = "/etc/php"
+        }
+        if deps.BackupRoot == "" {
+                deps.BackupRoot = "/var/backups/nexuspanel"
         }
         r := &Registry{deps: deps, m: map[string]rpc.Handler{}}
 
@@ -172,6 +180,17 @@ func NewRegistry(deps Deps) *Registry {
         r.m["database.size"] = r.databaseSize
         r.m["database.dump"] = r.databaseDump
         r.m["database.restore"] = r.databaseRestore
+
+        // backup.* (§4.14, amended at B10 with backup.test_destination) — P4:
+        // artifact backups (tar.gz + manifest + sha256) to local/sftp/s3
+        // destinations via the BackupTransport seam; age encryption (C15)
+        // with recipient keys; restore preview / restore / verify / purge.
+        r.m["backup.create"] = r.backupCreate
+        r.m["backup.restore_preview"] = r.backupRestorePreview
+        r.m["backup.restore"] = r.backupRestore
+        r.m["backup.verify"] = r.backupVerify
+        r.m["backup.purge"] = r.backupPurge
+        r.m["backup.test_destination"] = r.backupTestDestination
 
         // system.* (§4.15) — M0 subset
         r.m["system.health"] = r.systemHealth

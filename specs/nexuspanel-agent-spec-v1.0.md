@@ -204,14 +204,41 @@ Record rules (all methods): types `A, AAAA, CNAME, MX, TXT, SRV, CAA, NS`; names
 | `fail2ban.unban` | `ip, jail` |
 | `fail2ban.status` | `jail?` |
 
-### 4.14 `backup.*`
+### 4.14 `backup.*` (amended at B10 — artifact model detailed)
 | Method | Params |
 |---|---|
-| `backup.create` | `scope, scope_id, destination, path` |
-| `backup.restore_preview` | `artifact_path` |
-| `backup.restore` | `artifact_path, scope, scope_id, dry_run: bool` |
-| `backup.verify` | `artifact_path, checksum` |
-| `backup.purge` | `before_date` |
+| `backup.create` | `scope (server\|account\|site\|database), scope_id, destination {type: local\|s3\|sftp, …, age_recipients[]}, sources[], database {engine, name}, owner_username` |
+| `backup.restore_preview` | `artifact_path, destination` |
+| `backup.restore` | `artifact_path, destination, scope, scope_id, target_path, dry_run: bool, owner_username` |
+| `backup.verify` | `artifact_path, destination, checksum` |
+| `backup.purge` | `destination, before_date, delete[] (control-plane registry is authoritative; manifests newer than the cutoff are protected agent-side)` |
+| `backup.test_destination` *(B10 amendment)* | `destination` — probe round trip (put → get → checksum → delete) |
+
+B10 amendment notes:
+
+- One artifact = `tar.gz` (+ optional `.age` when the destination carries age
+  recipients) plus a sibling `*.manifest.json` (format, scope, sources,
+  entry count, inner tar checksum, encryption flag). The sha256 the control
+  plane records is over the final artifact bytes **after** encryption.
+- C15: encryption uses age against recipient public keys carried in the
+  destination config; the age identity (master key) is a node-local file
+  (`age-identity`), never an RPC parameter. An encrypted artifact on a node
+  without its identity fails restore/verify loudly — decryption without the
+  master key must fail, by construction.
+- Destination secrets (S3 secret key, SFTP private key) ride the signed
+  channel once per call (the `MYSQL_PWD` precedent) and are never written to
+  a WAL entry, a log line, a manifest, or an argv (child env / 0600 temp key
+  files instead). SFTP calls run in batch mode; the destination may pin a
+  `host_key` — when it does not, `test_destination` flags
+  `StrictHostKeyChecking=accept-new` honestly in its response.
+- Restores refuse artifacts whose bytes do not match the manifest checksum,
+  and extract only sanitized regular files/directories under the owning
+  account home (C13) — symlinks, devices and escapes are skipped with a
+  count, never followed.
+- S3 destinations upload through `rclone` (env-based remote config; secrets
+  ride the child env), SFTP through the OpenSSH `sftp` client, local
+  destinations are stdlib and confined under the agent backup root. Missing
+  binaries are loud preconditions, never silent fallbacks.
 
 ### 4.15 `system.*`
 | Method | Params |
