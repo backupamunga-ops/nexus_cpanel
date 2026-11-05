@@ -24,6 +24,7 @@ type Deps struct {
 	CertRoot      string       // ssl.* cert store; overridable in tests
 	ACMEDirectory string       // ACME directory URL; default Let's Encrypt production
 	ACMEHTTP      *http.Client // injected for tests against a fake CA
+	PhpRoot       string       // php version root (e.g. /etc/php); overridable in tests
 }
 
 // Registry maps method names to handlers.
@@ -46,6 +47,9 @@ func NewRegistry(deps Deps) *Registry {
 	}
 	if deps.CertRoot == "" {
 		deps.CertRoot = "/etc/nexuspanel/ssl"
+	}
+	if deps.PhpRoot == "" {
+		deps.PhpRoot = "/etc/php"
 	}
 	r := &Registry{deps: deps, m: map[string]rpc.Handler{}}
 
@@ -79,6 +83,12 @@ func NewRegistry(deps Deps) *Registry {
 	r.m["ssl.revoke"] = r.sslRevoke
 	r.m["ssl.list"] = r.sslList
 
+	// php.* (§4.6) — P3: per-site FPM pools (install_version = operator task)
+	r.m["php.list_versions"] = r.phpListVersions
+	r.m["php.create_pool"] = r.phpCreatePool
+	r.m["php.modify_pool"] = r.phpModifyPool
+	r.m["php.delete_pool"] = r.phpDeletePool
+
 	// nginx.* (§4.7) — P3: vhost lifecycle via the config-apply primitive
 	r.m["nginx.test"] = r.nginxTest
 	r.m["nginx.reload"] = r.nginxReload
@@ -102,7 +112,7 @@ func (r *Registry) Lookup(method string) (rpc.Handler, bool) {
 // unreachable (spec §6: *.status, *.list, *.usage, *.health stay available).
 func (r *Registry) IsReadOnly(method string) bool {
 	switch method {
-	case "account.usage", "account.list", "system.health", "system.info", "ssl.list",
+	case "account.usage", "account.list", "system.health", "system.info", "ssl.list", "php.list_versions",
 		"filesystem.list", "filesystem.read", "filesystem.usage":
 		return true
 	}
