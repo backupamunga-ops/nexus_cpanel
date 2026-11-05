@@ -45,6 +45,15 @@ interface SshDeployedView {
   data: Array<{ ssh_key_id: string; name: string; fingerprint: string; on_node: boolean }>;
 }
 
+interface FtpAccount {
+  id: string;
+  username: string;
+  root_dir: string;
+  read_only: boolean;
+  status: string;
+  created_at: string;
+}
+
 interface AccountOption {
   id: string;
   username: string;
@@ -66,6 +75,11 @@ export default function FilesPage() {
   const [trash, setTrash] = useState<TrashEntry[]>([]);
   const [sshKeys, setSshKeys] = useState<SshKey[]>([]);
   const [sshDeployed, setSshDeployed] = useState<SshDeployedView | null>(null);
+  const [ftpAccounts, setFtpAccounts] = useState<FtpAccount[]>([]);
+  const [ftpUser, setFtpUser] = useState('');
+  const [ftpPass, setFtpPass] = useState('');
+  const [ftpRoot, setFtpRoot] = useState('');
+  const [ftpRo, setFtpRo] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -96,6 +110,8 @@ export default function FilesPage() {
       setSshKeys(k.data ?? []);
       const d = await api<SshDeployedView>(`/ssh/keys/deployed?account_id=${encodeURIComponent(accountId)}`);
       setSshDeployed(d);
+      const f = await api<{ data: FtpAccount[] }>(`/ftp?account_id=${encodeURIComponent(accountId)}`);
+      setFtpAccounts(f.data ?? []);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'control plane unreachable');
@@ -475,6 +491,106 @@ export default function FilesPage() {
                   }
                 >
                   Import key
+                </button>
+              </div>
+            </div>
+
+            <div className="np-card">
+              <h3 style={{ marginTop: 0 }}>FTP accounts</h3>
+              <p style={{ fontSize: 12, color: 'var(--np-muted)', marginTop: 0 }}>
+                vsftpd virtual users (ADR-0011): each login is chrooted to a
+                directory inside this account&apos;s home. Passwords are hashed
+                on the node (SHA-512-crypt) and never stored in the panel.
+              </p>
+              {ftpAccounts.length === 0 && <p style={{ color: 'var(--np-muted)', fontSize: 13 }}>No FTP accounts.</p>}
+              {ftpAccounts.map((f) => (
+                <div key={f.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, wordBreak: 'break-all' }}>
+                    <strong>{f.username}</strong>{' '}
+                    {f.read_only && <span className="np-badge">read-only</span>}
+                    <br />
+                    <span style={{ color: 'var(--np-muted)' }}>root: {f.root_dir}</span>
+                  </span>
+                  <span style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      className="np-button"
+                      style={{ padding: '2px 8px', fontSize: 11 }}
+                      disabled={busy}
+                      onClick={() => {
+                        const pw = window.prompt(`New password for ${f.username} (min 8 chars):`);
+                        if (!pw || pw.length < 8) return;
+                        void run(() => api(`/ftp/${f.id}/password`, { method: 'POST', body: JSON.stringify({ password: pw }) }), 'password rotated.');
+                      }}
+                    >
+                      Reset password
+                    </button>
+                    <button
+                      className="np-button"
+                      style={{ padding: '2px 8px', fontSize: 11 }}
+                      disabled={busy}
+                      onClick={() => {
+                        if (!window.confirm(`Remove FTP account ${f.username}?`)) return;
+                        void run(() => api(`/ftp/${f.id}`, { method: 'DELETE' }), 'ftp account removed.');
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </span>
+                </div>
+              ))}
+              <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+                <input
+                  className="np-input"
+                  value={ftpUser}
+                  onChange={(e) => setFtpUser(e.target.value)}
+                  placeholder="login (e.g. alice.web)"
+                  aria-label="FTP login"
+                />
+                <input
+                  className="np-input"
+                  type="password"
+                  value={ftpPass}
+                  onChange={(e) => setFtpPass(e.target.value)}
+                  placeholder="password (min 8 chars)"
+                  aria-label="FTP password"
+                />
+                <input
+                  className="np-input"
+                  value={ftpRoot}
+                  onChange={(e) => setFtpRoot(e.target.value)}
+                  placeholder="directory inside home (empty = home itself)"
+                  aria-label="FTP root directory"
+                />
+                <label style={{ fontSize: 12, display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input type="checkbox" checked={ftpRo} onChange={(e) => setFtpRo(e.target.checked)} />
+                  read-only (no uploads)
+                </label>
+                <button
+                  className="np-button"
+                  disabled={busy || ftpUser.trim() === '' || ftpPass.length < 8}
+                  onClick={() =>
+                    void run(
+                      () =>
+                        api('/ftp', {
+                          method: 'POST',
+                          body: JSON.stringify({
+                            account_id: accountId,
+                            username: ftpUser.trim(),
+                            password: ftpPass,
+                            ...(ftpRoot.trim() !== '' ? { root_dir: ftpRoot.trim() } : {}),
+                            read_only: ftpRo,
+                          }),
+                        }),
+                      'ftp account created.',
+                    ).then(() => {
+                      setFtpUser('');
+                      setFtpPass('');
+                      setFtpRoot('');
+                      setFtpRo(false);
+                    })
+                  }
+                >
+                  Create FTP account
                 </button>
               </div>
             </div>

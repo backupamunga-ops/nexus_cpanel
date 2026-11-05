@@ -100,11 +100,28 @@
         chmod is for web files, not privilege games.</li>
     </ul>
 
+    <h2>FTP accounts <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Each hosting account can have vsftpd virtual users (per API spec
+      §4.12, agent amendment <a href="../adr/ADR-0011-ftp-virtual-users.md">ADR-0011</a>).
+      A login is globally unique, chrooted to a directory inside the
+      account's home, and optionally read-only. The panel stores only the
+      registry; the password is hashed on the node (SHA-512-crypt, fresh
+      salt per write via <code>openssl passwd -6</code>) into the
+      pam_userdb and never persisted anywhere else.
+    </p>
+    <div class="callout warn">
+      Node prerequisites: vsftpd must be configured once per node with
+      <code>pam_userdb</code> pointing at the panel's user DB and
+      <code>user_config_dir</code> at the panel's per-user directory (a
+      runbook task — the installer milestone automates it). Accounts
+      provision fine before that but cannot authenticate; nodes without
+      <code>db_load</code> report the skipped userdb rebuild explicitly in
+      the API response instead of pretending the login works.
+    </div>
+
     <h2>Not live yet</h2>
     <ul>
-      <li><strong>FTP accounts</strong> — the agent spec has no
-        <code>ftp.*</code> category yet; provisioning vsftpd accounts needs
-        its own amendment and lands later.</li>
       <li><strong>Archive/extract and server-side search</strong> — later
         P3 additions to the same file service.</li>
     </ul>
