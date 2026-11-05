@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Files & FTP · NexusPanel Docs</title>
+  <title>Files &amp; trash · NexusPanel Docs</title>
   <link rel="stylesheet" href="../assets/style.css">
 </head>
 <body>
@@ -11,43 +11,95 @@
   <aside>
     <div class="brand">NexusPanel Docs</div>
     <div class="tag">v0.1.0-m0 · preview</div>
-    <div class="group">Start here</div>
+    <div class="group">Using the panel</div>
     <nav>
-      <a href="getting-started.html">Getting started</a>
-      <a href="first-account.html">Your first hosting account</a>
-    </nav>
-    <div class="group">Admin guide</div>
-    <nav>
-      <a href="accounts.html">Accounts & packages</a>
-      <a href="audit.html">Audit log & chain</a>
+      <a href="accounts.html">Accounts &amp; packages</a>
+      <a href="sites.html">Sites &amp; domains</a>
+      <a class="active" href="files.html">Files &amp; trash</a>
+      <a href="ssl.html">SSL certificates</a>
     </nav>
     <div class="back"><a href="../index.html">← Documentation home</a></div>
   </aside>
   <main>
-    <h1>Files & FTP</h1>
+    <h1>Files &amp; trash</h1>
     <p class="lede">
-      This chapter opens with its build phase. The scope below is committed in
-      the master specification; nothing here is live in the M0 preview.
+      The browser file manager runs on top of the agent's confined filesystem
+      commands. The control plane decides <em>whether</em> (permissions,
+      ownership, audit); the agent decides <em>where</em> (path confinement
+      on the node). Between the two, a file operation has no single point of
+      failure and no single point of deception.
     </p>
 
-    <p><span class="badge">planned for P3</span></p>
+    <h2>Browsing and editing <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Open <strong>Files</strong>, pick a hosting account, and navigate from
+      the account home. You can create directories, upload files (10 MiB per
+      file), download them (base64-wrapped, with an explicit flag when the
+      10 MiB read cap truncated the file — a silent partial download would be
+      worse than an error), and change permission bits.
+    </p>
+    <p>
+      Paths are anchored at the account home: relative paths resolve under
+      it, absolute paths must already be inside it, and <code>..</code> is
+      rejected before it ever reaches a signed command. The agent re-checks
+      everything with symlink-aware confinement — a planted symlink cannot
+      redirect a panel operation outside the account.
+    </p>
 
-    <h2>Planned scope</h2>
+    <h2>Trash with a 30-day retention <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Deleting a file or directory moves it to the account's trash
+      (<code>.nexus-trash/</code> on the node, with a timestamp prefix) and
+      records a ledger row with a <code>purge_after</code> deadline 30 days
+      out. From the trash panel you can restore an entry (the file moves
+      back) or purge it immediately.
+    </p>
+    <p>
+      The <em>Purge expired entries</em> action runs the agent's purge for
+      the account. Reconciliation is honest by construction: the agent
+      reports exactly which files it removed, and only those entries leave
+      the ledger — a file the agent could not remove stays in the trash and
+      in the ledger, visible instead of vanishing.
+    </p>
+
+    <h2>SSH keys <span class="badge ok">stored in the panel</span></h2>
+    <p>
+      Import per-account public keys (ed25519, RSA, ECDSA — single-line
+      OpenSSH format). The panel computes the SHA-256 fingerprint at import
+      and refuses duplicates, so a mis-pasted key is caught at import, not at
+      2 a.m. when it "doesn't work".
+    </p>
+    <div class="callout warn">
+      Keys are <strong>stored — not yet deployed to the node</strong>. The
+      <code>authorized_keys</code> write path is an agent-side operation that
+      lands with the P4 amendment; the UI labels this state honestly instead
+      of pretending the key is active.
+    </div>
+
+    <h2>What the agent refuses</h2>
     <ul>
-      <li>Browser file manager (keyboard-first)</li>
-      <li>Trash with 30-day purge</li>
-      <li>FTP/SFTP accounts and SSH key management</li>
+      <li>Paths outside the account home, including symlink redirection.</li>
+      <li>Deleting the account home or the trash root itself.</li>
+      <li>Content above the 10 MiB cap (upload and download alike).</li>
+      <li>Overwriting an existing file unless the operation says so
+        explicitly.</li>
+      <li>Special permission bits (setuid/setgid/sticky) on chmod — panel
+        chmod is for web files, not privilege games.</li>
     </ul>
 
-    <div class="callout">
-      Docs ship together with the feature (Definition of Done, BUILD_PLAN §1) —
-      when files & ftp goes live, this page gets full procedures and
-      regenerated screenshots in the same merge.
-    </div>
+    <h2>Not live yet</h2>
+    <ul>
+      <li><strong>FTP accounts</strong> — the agent spec has no
+        <code>ftp.*</code> category yet; provisioning vsftpd accounts needs
+        its own amendment and lands later.</li>
+      <li><strong>Archive/extract and server-side search</strong> — later
+        P3 additions to the same file service.</li>
+      <li><strong>SSH key deployment</strong> — see the callout above.</li>
+    </ul>
 
     <div class="pager">
       <a href="../index.html">← Documentation home</a>
-      <a href="audit.html">Audit log &amp; chain →</a>
+      <a href="ssl.html">SSL certificates →</a>
     </div>
   </main>
 </div>
