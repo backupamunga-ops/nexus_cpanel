@@ -16,12 +16,20 @@
  * decorator arguments containing parentheses inside strings are not
  * expected in this codebase and would need a real AST (P3, if controllers
  * grow complex decorator payloads).
+ *
+ * Vocabulary check (C4/C6): every @RequirePermission literal found in a
+ * controller must appear in KNOWN_PERMISSIONS (common/permissions.ts) —
+ * API-token scopes are validated against that same set at creation time, so
+ * an unlisted permission would be unscopeable and unreachable. The reverse
+ * direction (vocabulary entry with no route) is allowed: entries may
+ * legitimately precede their endpoints.
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const HTTP_DECORATOR = /^@\b(Get|Post|Patch|Put|Delete|Head|Options|All)\b/;
 const METHOD_LINE = /^\s*(?:private\s+|protected\s+|public\s+)?(?:async\s+)?[A-Za-z_$][\w$]*\s*\(/;
+const PERMISSION_LITERAL = /@RequirePermission\(\s*'([^']+)'\s*\)/g;
 
 /** Strips block and line comments (string-literal-unaware, fine for TS controllers here). */
 function stripComments(src) {
@@ -105,6 +113,20 @@ export function checkSource(src, label) {
   return violations;
 }
 
+/** Extracts the string literals of the KNOWN_PERMISSIONS array (or null). */
+export function extractVocabulary(permissionsTs) {
+  const m = permissionsTs.match(/KNOWN_PERMISSIONS[^=]*=\s*\[([^\]]*)\]/s);
+  if (!m) return null;
+  const out = [];
+  for (const lit of m[1].matchAll(/'([^']+)'/g)) out.push(lit[1]);
+  return out.length > 0 ? out : null;
+}
+
+/** All @RequirePermission literals appearing in a source file. */
+export function extractRequiredPermissions(src) {
+  return [...stripComments(src).matchAll(PERMISSION_LITERAL)].map((m) => m[1]);
+}
+
 function listControllerFiles(root) {
   const out = [];
   const walk = (dir) => {
@@ -126,15 +148,33 @@ function run(root) {
     process.exit(1);
   }
   const violations = [];
+  const vocabulary = extractVocabulary(
+    readFileSync(join(root, 'common', 'permissions.ts'), 'utf8'),
+  );
+  if (!vocabulary) {
+    console.error('permissions:check: KNOWN_PERMISSIONS not found in common/permissions.ts');
+    process.exit(1);
+  }
+  const known = new Set(vocabulary);
   for (const file of files) {
-    violations.push(...checkSource(readFileSync(file, 'utf8'), file.replace(`${root}/`, '')));
+    const src = readFileSync(file, 'utf8');
+    violations.push(...checkSource(src, file.replace(`${root}/`, '')));
+    for (const p of extractRequiredPermissions(src)) {
+      if (!known.has(p)) {
+        violations.push(
+          `${file.replace(`${root}/`, '')}: permission '${p}' is not in KNOWN_PERMISSIONS (common/permissions.ts) — API tokens cannot be scoped to it`,
+        );
+      }
+    }
   }
   if (violations.length > 0) {
-    console.error(`permissions:check: ${violations.length} undecorated route(s):`);
+    console.error(`permissions:check: ${violations.length} violation(s):`);
     for (const v of violations) console.error('  ✗ ' + v);
     process.exit(1);
   }
-  console.log(`permissions:check: ${files.length} controller(s), every route decorated ✓`);
+  console.log(
+    `permissions:check: ${files.length} controller(s), every route decorated, all permissions in vocabulary ✓`,
+  );
 }
 
 function selfTest() {
@@ -176,6 +216,26 @@ export class PartialController {
   }
   if (checkSource(bad, 'bad').length !== 1 || checkSource(partial, 'partial').length !== 1) {
     console.error('self-test FAILED: violating fixtures not caught');
+    process.exit(1);
+  }
+  const vocab = `export const KNOWN_PERMISSIONS: readonly string[] = [
+  'demo:list',
+  'demo:create',
+];`;
+  if (JSON.stringify(extractVocabulary(vocab)) !== JSON.stringify(['demo:list', 'demo:create'])) {
+    console.error('self-test FAILED: vocabulary extraction broken');
+    process.exit(1);
+  }
+  if (extractRequiredPermissions(good).join(',') !== 'demo:list,demo:create') {
+    console.error('self-test FAILED: permission literal extraction broken');
+    process.exit(1);
+  }
+  const unknownPerm = good.replace("'demo:list'", "'demo:typo'");
+  const unknown = extractRequiredPermissions(unknownPerm).filter(
+    (p) => !['demo:list', 'demo:create'].includes(p),
+  );
+  if (unknown.length !== 1 || unknown[0] !== 'demo:typo') {
+    console.error('self-test FAILED: unknown-permission detection broken');
     process.exit(1);
   }
   console.log('permissions:check self-test ✓');

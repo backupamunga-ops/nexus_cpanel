@@ -9,6 +9,12 @@ export interface AuthContext {
   isSuperAdmin?: boolean;
   /** Per-account role resolved by PermissionsGuard for `account:*` routes. */
   accountRole?: string;
+  /** True when the bearer credential is an API token (C4), not a session JWT. */
+  viaApiToken?: boolean;
+  /** ApiToken row id — audit attribution for token-authenticated requests. */
+  tokenId?: string;
+  /** Scopes granted to the presenting API token (C4) — enforced by PermissionsGuard. */
+  tokenScopes?: string[];
 }
 
 export interface AuthenticatedRequest {

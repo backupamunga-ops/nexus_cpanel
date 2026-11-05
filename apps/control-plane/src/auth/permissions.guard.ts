@@ -6,7 +6,12 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { ACCOUNT_ROLE_PERMISSIONS, PERMISSION_KEY, SELF_PERMISSIONS } from '../common/permissions';
+import {
+  ACCOUNT_ROLE_PERMISSIONS,
+  PERMISSION_KEY,
+  SELF_PERMISSIONS,
+  SESSION_ONLY_KEY,
+} from '../common/permissions';
 import { PrismaService } from '../prisma/prisma.service';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { AuthenticatedRequest } from './request-context';
@@ -27,6 +32,10 @@ import { AuthenticatedRequest } from './request-context';
  *     to a fixed permission set (ACCOUNT_ROLE_PERMISSIONS).
  *   - Collection-level `account:list` passes here; the service narrows rows
  *     to granted accounts (C7 direction).
+ *   - API tokens (C4): the required permission must be in the token's scopes
+ *     AND the owner's own session-level authorization must also pass — a
+ *     token never grants more than its owner holds. @SessionOnly() routes
+ *     reject tokens outright (credential management is interactive-only).
  *   - Everything else (audit:*, future resources) requires elevated roles —
  *     non-super-admins are rejected until reseller roles land in P2.
  */
@@ -55,6 +64,10 @@ export class PermissionsGuard implements CanActivate {
       // check catches this at build time too — this is defense in depth.
       throw new ForbiddenException('endpoint lacks a permission declaration');
     }
+    const sessionOnly = this.reflector.getAllAndOverride<boolean>(SESSION_ONLY_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
 
     const req = context.switchToHttp().getRequest<AuthenticatedRequest>();
     if (!req.auth?.userId) {
@@ -69,6 +82,20 @@ export class PermissionsGuard implements CanActivate {
       throw new ForbiddenException('account is disabled or no longer exists');
     }
     req.auth.isSuperAdmin = user.is_super_admin;
+
+    const auth = req.auth;
+    if (auth.viaApiToken) {
+      // C4 gate 1: session-only surfaces reject tokens outright.
+      if (sessionOnly) {
+        throw new ForbiddenException('this endpoint requires an interactive session');
+      }
+      // C4 gate 2: the scope must cover the required permission — even for
+      // super-admins (a token is bounded by its scopes, not by its owner).
+      if (!auth.tokenScopes?.includes(permission)) {
+        throw new ForbiddenException(`api token lacks the '${permission}' scope`);
+      }
+      // C4 gate 3 (below): the owner's own authorization must also pass.
+    }
 
     if (user.is_super_admin || SELF_PERMISSIONS.has(permission)) {
       return true;

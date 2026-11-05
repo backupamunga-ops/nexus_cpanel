@@ -20,6 +20,43 @@ export const RequirePermission = (permission: string) =>
   SetMetadata(PERMISSION_KEY, permission);
 
 /**
+ * Routes marked @SessionOnly() accept browser/JWT sessions only: API tokens
+ * (C4) are rejected even when they carry the required scope. Applied to
+ * credential-management surfaces (token CRUD, 2FA, sessions) where a stolen
+ * automation token must not be able to mint or disable other credentials.
+ */
+export const SESSION_ONLY_KEY = 'nexuspanel:sessionOnly';
+export const SessionOnly = () => SetMetadata(SESSION_ONLY_KEY, true);
+
+/**
+ * Permission vocabulary — the complete set of permission strings this build
+ * can enforce. Two things keep it honest:
+ *
+ *   - API-token scopes (C4) are validated against this set at creation, so a
+ *     typo'd scope can never silently match nothing (or everything).
+ *   - `npm run permissions:check` extracts every @RequirePermission literal
+ *     from every controller and fails the build if one is absent here — the
+ *     vocabulary and the routes cannot drift apart.
+ *
+ * Entries may exist before their endpoints do (a token scoped to a permission
+ * whose endpoint lands later is simply inert until then).
+ */
+export const KNOWN_PERMISSIONS: readonly string[] = [
+  'account:create',
+  'account:delete',
+  'account:list',
+  'account:read',
+  'account:resume',
+  'account:suspend',
+  'account:update',
+  'audit:list',
+  'audit:read',
+  'audit:verify',
+  'auth:logout',
+  'auth:tokens',
+];
+
+/**
  * Permissions granted by each per-account role (user_hosting_account_access,
  * spec §11.3: owner = full control; admin = owner minus deletion; member =
  * configurable, minimal by default; readonly = view only).
@@ -45,4 +82,7 @@ export const ACCOUNT_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
  * Self-service permissions: any authenticated, active user holds these on
  * themself. No more than strictly necessary.
  */
-export const SELF_PERMISSIONS: ReadonlySet<string> = new Set(['auth:logout']);
+export const SELF_PERMISSIONS: ReadonlySet<string> = new Set([
+  'auth:logout',
+  'auth:tokens',
+]);
