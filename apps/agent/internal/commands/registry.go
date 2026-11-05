@@ -42,6 +42,10 @@ type Deps struct {
         PostmapBinary     string       // postmap path; empty = exec.LookPath (tests inject a fake)
         PostfixBinary     string       // postfix path; empty = exec.LookPath (honest skip when absent)
         DoveadmBinary     string       // doveadm path; empty = exec.LookPath (honest skip when absent)
+        OpendkimKeyRoot   string       // mail.apply_dkim key root (/etc/opendkim/keys); overridable in tests
+        OpendkimTableDir  string       // managed KeyTable/SigningTable dir; overridable in tests
+        PostqueueBinary   string       // postqueue path; empty = exec.LookPath (tests inject a fake)
+        PostsuperBinary   string       // postsuper path; empty = exec.LookPath (tests inject a fake)
 }
 
 // Registry maps method names to handlers.
@@ -154,6 +158,10 @@ func NewRegistry(deps Deps) *Registry {
         r.m["mail.create_autoresponder"] = r.mailCreateAutoresponder
         r.m["mail.delete_autoresponder"] = r.mailDeleteAutoresponder
         r.m["mail.reload"] = r.mailReload
+        r.m["mail.apply_dkim"] = r.mailApplyDkim
+        r.m["mail.queue_list"] = r.mailQueueList
+        r.m["mail.queue_flush"] = r.mailQueueFlush
+        r.m["mail.queue_retry"] = r.mailQueueRetry
 
         // system.* (§4.15) — M0 subset
         r.m["system.health"] = r.systemHealth
@@ -176,7 +184,8 @@ func (r *Registry) IsReadOnly(method string) bool {
                 "config.validate", "config.drift_check", "config.list_active",
                 "filesystem.list", "filesystem.read", "filesystem.usage",
                 "ssh.list_deployed", "ftp.list_accounts",
-                "dns.axfr_export", "dns.zone_check", "dns.get_dnssec":
+                "dns.axfr_export", "dns.zone_check", "dns.get_dnssec",
+                "mail.queue_list":
                 return true
         }
         return false
