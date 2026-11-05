@@ -6,6 +6,7 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/backupamunga-ops/nexus_cpanel/apps/agent/internal/auth"
 	"github.com/backupamunga-ops/nexus_cpanel/apps/agent/internal/rpc"
@@ -14,12 +15,15 @@ import (
 
 // Deps carries everything handlers need.
 type Deps struct {
-	Verifier    *auth.Verifier
-	WAL         *wal.Queue
-	CgroupRoot  string // cgroup v2 root; overridable in tests
-	HomeRoot    string // C13 confined root for hosting-account home dirs
-	VhostRoot   string // nginx vhost include dir; overridable in tests
-	NginxBinary string // nginx path; empty = exec.LookPath (tests inject a fake)
+	Verifier      *auth.Verifier
+	WAL           *wal.Queue
+	CgroupRoot    string       // cgroup v2 root; overridable in tests
+	HomeRoot      string       // C13 confined root for hosting-account home dirs
+	VhostRoot     string       // nginx vhost include dir; overridable in tests
+	NginxBinary   string       // nginx path; empty = exec.LookPath (tests inject a fake)
+	CertRoot      string       // ssl.* cert store; overridable in tests
+	ACMEDirectory string       // ACME directory URL; default Let's Encrypt production
+	ACMEHTTP      *http.Client // injected for tests against a fake CA
 }
 
 // Registry maps method names to handlers.
@@ -39,6 +43,9 @@ func NewRegistry(deps Deps) *Registry {
 	}
 	if deps.VhostRoot == "" {
 		deps.VhostRoot = "/etc/nginx/conf.d"
+	}
+	if deps.CertRoot == "" {
+		deps.CertRoot = "/etc/nexuspanel/ssl"
 	}
 	r := &Registry{deps: deps, m: map[string]rpc.Handler{}}
 
@@ -66,6 +73,12 @@ func NewRegistry(deps Deps) *Registry {
 	r.m["filesystem.usage"] = r.filesystemUsage
 	r.m["filesystem.trash_purge"] = r.trashPurge
 
+	// ssl.* (§4.11) — P3: cert lifecycle + ACME http-01 issuance
+	r.m["ssl.install_cert"] = r.sslInstallCert
+	r.m["ssl.issue_acme"] = r.sslIssueAcme
+	r.m["ssl.revoke"] = r.sslRevoke
+	r.m["ssl.list"] = r.sslList
+
 	// nginx.* (§4.7) — P3: vhost lifecycle via the config-apply primitive
 	r.m["nginx.test"] = r.nginxTest
 	r.m["nginx.reload"] = r.nginxReload
@@ -89,7 +102,7 @@ func (r *Registry) Lookup(method string) (rpc.Handler, bool) {
 // unreachable (spec §6: *.status, *.list, *.usage, *.health stay available).
 func (r *Registry) IsReadOnly(method string) bool {
 	switch method {
-	case "account.usage", "account.list", "system.health", "system.info",
+	case "account.usage", "account.list", "system.health", "system.info", "ssl.list",
 		"filesystem.list", "filesystem.read", "filesystem.usage":
 		return true
 	}

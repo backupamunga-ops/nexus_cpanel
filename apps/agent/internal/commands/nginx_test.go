@@ -29,6 +29,7 @@ func newNginxRegistry(t *testing.T, bin string) *Registry {
 		WAL:         newTestWAL(t),
 		HomeRoot:    t.TempDir(),
 		VhostRoot:   t.TempDir(),
+		CertRoot:    t.TempDir(),
 		NginxBinary: bin,
 	})
 }
