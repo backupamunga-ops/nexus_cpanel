@@ -12,6 +12,7 @@ import { FtpModule } from './ftp/ftp.module';
 import { DnsModule } from './dns/dns.module';
 import { MailModule } from './mail/mail.module';
 import { DatabasesModule } from './databases/databases.module';
+import { BackupsModule } from './backups/backups.module';
 import { SslModule } from './ssl/ssl.module';
 import { PhpModule } from './php/php.module';
 import { ConfigModule } from './config/config.module';
@@ -37,6 +38,7 @@ import { PrismaModule } from './prisma/prisma.module';
     DnsModule,
     MailModule,
     DatabasesModule,
+    BackupsModule,
     SslModule,
     PhpModule,
     ConfigModule,

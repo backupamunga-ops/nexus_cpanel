@@ -899,6 +899,110 @@ export class AgentClientService {
     return r.result;
   }
 
+  // ---- P4: backups (§4.16, B10 — tar/age artifacts via the BackupTransport seam)
+
+  async backupCreate(input: {
+    scope: string;
+    scope_id?: string;
+    destination: Record<string, unknown>;
+    sources?: string[];
+    database?: { engine: string; name: string };
+    owner_username?: string;
+  }): Promise<{
+    status: string;
+    scope: string;
+    artifact: string;
+    checksum_sha256: string;
+    size_bytes: number;
+    encrypted: boolean;
+    manifest: Record<string, unknown>;
+  }> {
+    const r = await this.call<{
+      status: string;
+      scope: string;
+      artifact: string;
+      checksum_sha256: string;
+      size_bytes: number;
+      encrypted: boolean;
+      manifest: Record<string, unknown>;
+    }>('backup.create', input as unknown as Record<string, unknown>);
+    return r.result;
+  }
+
+  async backupRestorePreview(input: {
+    artifact_path: string;
+    destination: Record<string, unknown>;
+  }): Promise<{
+    manifest: Record<string, unknown>;
+    entries: Array<{ name: string; size: number }>;
+    total_entries: number;
+    truncated: boolean;
+    checksum_match: boolean;
+  }> {
+    const r = await this.call<{
+      manifest: Record<string, unknown>;
+      entries: Array<{ name: string; size: number }>;
+      total_entries: number;
+      truncated: boolean;
+      checksum_match: boolean;
+    }>('backup.restore_preview', input as unknown as Record<string, unknown>);
+    return r.result;
+  }
+
+  async backupRestore(input: {
+    artifact_path: string;
+    destination: Record<string, unknown>;
+    scope: string;
+    scope_id?: string;
+    target_path?: string;
+    dry_run: boolean;
+    owner_username?: string;
+  }): Promise<{ status: string; extracted: string[]; skipped: number; into?: string; checksum_ok: boolean }> {
+    const r = await this.call<{ status: string; extracted: string[]; skipped: number; into?: string; checksum_ok: boolean }>(
+      'backup.restore',
+      input as unknown as Record<string, unknown>,
+    );
+    return r.result;
+  }
+
+  async backupVerify(input: {
+    artifact_path: string;
+    destination: Record<string, unknown>;
+    checksum?: string;
+  }): Promise<{ status: string; checksum_sha256: string; expected?: string; encrypted: boolean; reason?: string }> {
+    const r = await this.call<{ status: string; checksum_sha256: string; expected?: string; encrypted: boolean; reason?: string }>(
+      'backup.verify',
+      input as unknown as Record<string, unknown>,
+    );
+    return r.result;
+  }
+
+  async backupPurge(input: {
+    destination: Record<string, unknown>;
+    before_date: string;
+    delete: string[];
+  }): Promise<{ status: string; deleted: string[]; protected: string[]; failed?: string[] }> {
+    const r = await this.call<{ status: string; deleted: string[]; protected: string[]; failed?: string[] }>(
+      'backup.purge',
+      input as unknown as Record<string, unknown>,
+    );
+    return r.result;
+  }
+
+  async backupTestDestination(destination: Record<string, unknown>): Promise<{
+    status: string;
+    round_trip_bytes: number;
+    encrypted: boolean;
+    host_key_pinned: boolean;
+    note?: string;
+  }> {
+    const r = await this.call<{ status: string; round_trip_bytes: number; encrypted: boolean; host_key_pinned: boolean; note?: string }>(
+      'backup.test_destination',
+      { destination },
+    );
+    return r.result;
+  }
+
   /** Exposed for tests: the exact bytes that were signed. */
   static signatureInput(
     method: string,
