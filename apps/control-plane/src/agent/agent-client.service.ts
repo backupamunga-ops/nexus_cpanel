@@ -521,6 +521,111 @@ export class AgentClientService {
     return r.result;
   }
 
+  // ---- P4: dns (§4.9, ADR-0012 — PowerDNS API + pdnsutil) -------------------
+
+  async dnsCreateZone(
+    zone: string,
+    records: Array<{ name: string; type: string; content: string; ttl: number; priority: number | null; weight: number | null; port: number | null; wire?: string }>,
+  ): Promise<{ status: string; zone: string; kind: string; record_count: number; soa_seeded: boolean }> {
+    const r = await this.call<{
+      status: string;
+      zone: string;
+      kind: string;
+      record_count: number;
+      soa_seeded: boolean;
+    }>('dns.create_zone', {
+      zone,
+      records: records.map((rec) => ({
+        name: rec.name,
+        type: rec.type,
+        content: rec.wire ?? rec.content,
+        ttl: rec.ttl,
+        priority: rec.priority ?? undefined,
+        weight: rec.weight ?? undefined,
+        port: rec.port ?? undefined,
+      })),
+    });
+    return r.result;
+  }
+
+  async dnsDeleteZone(zone: string): Promise<{ status: string; zone: string }> {
+    const r = await this.call<{ status: string; zone: string }>('dns.delete_zone', { zone });
+    return r.result;
+  }
+
+  async dnsApplyRecords(
+    zone: string,
+    records: Array<{ name: string; type: string; content: string; ttl: number; priority: number | null; weight: number | null; port: number | null; wire?: string }>,
+  ): Promise<{ status: string; zone: string; applied: number; removed: number }> {
+    const r = await this.call<{
+      status: string;
+      zone: string;
+      applied: number;
+      removed: number;
+    }>('dns.apply_records', {
+      zone,
+      records: records.map((rec) => ({
+        name: rec.name,
+        type: rec.type,
+        content: rec.wire ?? rec.content,
+        ttl: rec.ttl,
+        priority: rec.priority ?? undefined,
+        weight: rec.weight ?? undefined,
+        port: rec.port ?? undefined,
+      })),
+    });
+    return r.result;
+  }
+
+  async dnsAXFRExport(zone: string): Promise<{ zone: string; content: string }> {
+    const r = await this.call<{ zone: string; content: string }>('dns.axfr_export', { zone });
+    return r.result;
+  }
+
+  async dnsZoneCheck(zone: string): Promise<{ zone: string; ok: boolean; issues: string[] }> {
+    const r = await this.call<{ zone: string; ok: boolean; issues: string[] }>('dns.zone_check', { zone });
+    return r.result;
+  }
+
+  async dnsGetDnssec(zone: string): Promise<{
+    zone: string;
+    enabled: boolean;
+    ds: string[];
+    dnskey: string[];
+    keys: Array<{ key_type: string; key_id: string; detail: string }>;
+  }> {
+    const r = await this.call<{
+      zone: string;
+      enabled: boolean;
+      ds: string[];
+      dnskey: string[];
+      keys: Array<{ key_type: string; key_id: string; detail: string }>;
+    }>('dns.get_dnssec', { zone });
+    return r.result;
+  }
+
+  async dnsEnableDnssec(zone: string): Promise<{
+    status: string;
+    zone: string;
+    ds: string[];
+    dnskey: string[];
+    keys: Array<{ key_type: string; key_id: string; detail: string }>;
+  }> {
+    const r = await this.call<{
+      status: string;
+      zone: string;
+      ds: string[];
+      dnskey: string[];
+      keys: Array<{ key_type: string; key_id: string; detail: string }>;
+    }>('dns.enable_dnssec', { zone });
+    return r.result;
+  }
+
+  async dnsDisableDnssec(zone: string): Promise<{ status: string; zone: string }> {
+    const r = await this.call<{ status: string; zone: string }>('dns.disable_dnssec', { zone });
+    return r.result;
+  }
+
   // ---- P4 amendment ADR-0010: ssh.* authorized_keys -------------------------
 
   async sshDeployKeys(

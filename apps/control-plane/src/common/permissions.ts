@@ -61,6 +61,12 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
   'file:read',
   'config:manage',
   'config:read',
+  'dns:create',
+  'dns:delete',
+  'dns:list',
+  'dns:manage',
+  'dns:read',
+  'dns:update',
   'file:write',
   'ftp:create',
   'ftp:delete',
@@ -99,7 +105,7 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
  * boundary. Visibility failures are 404, not 403 (API spec §3.2
  * anti-enumeration). Grows family by family as P3 resources land.
  */
-export const HOSTING_SCOPED_PREFIXES: readonly string[] = ['site:', 'file:', 'ssh:', 'ssl:', 'php:', 'config:', 'ftp:'];
+export const HOSTING_SCOPED_PREFIXES: readonly string[] = ['site:', 'file:', 'ssh:', 'ssl:', 'php:', 'config:', 'ftp:', 'dns:'];
 
 /**
  * Roles that may be granted through the sharing API (POST /accounts/{id}/shares).
@@ -151,6 +157,12 @@ export const ACCOUNT_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'ftp:create',
     'ftp:update',
     'ftp:delete',
+    'dns:list',
+    'dns:read',
+    'dns:create',
+    'dns:update',
+    'dns:delete',
+    'dns:manage',
     'config:read',
     'config:manage',
   ],
@@ -180,11 +192,17 @@ export const ACCOUNT_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'ftp:create',
     'ftp:update',
     'ftp:delete',
+    'dns:list',
+    'dns:read',
+    'dns:create',
+    'dns:update',
+    'dns:delete',
+    'dns:manage',
     'config:read',
     'config:manage',
   ],
-  member: ['account:read', 'site:list', 'site:read', 'file:read', 'ssl:read', 'config:read', 'ftp:list'],
-  readonly: ['account:read', 'site:list', 'site:read', 'file:read', 'ssl:read', 'config:read', 'ftp:list'],
+  member: ['account:read', 'site:list', 'site:read', 'file:read', 'ssl:read', 'config:read', 'ftp:list', 'dns:list', 'dns:read'],
+  readonly: ['account:read', 'site:list', 'site:read', 'file:read', 'ssl:read', 'config:read', 'ftp:list', 'dns:list', 'dns:read'],
 };
 
 /**
