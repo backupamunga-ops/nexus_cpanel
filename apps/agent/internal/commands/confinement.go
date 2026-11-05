@@ -111,3 +111,79 @@ func existingSymlink(path string) bool {
 	fi, err := os.Lstat(path)
 	return err == nil && fi.Mode()&os.ModeSymlink != 0
 }
+
+// confineUnderHome is the round-2 path confinement for filesystem.* and
+// config-engine writes inside an account's home (C13). It accepts absolute
+// paths under <root>/<username> and relative paths resolved against that
+// home, then walks the EXISTING prefix with symlink resolution: the deepest
+// existing ancestor must resolve INSIDE the resolved home, so a planted
+// symlink at any level (including the home root itself) cannot redirect the
+// operation. Non-existent tails are safe: they can only be created after the
+// parent chain has been re-validated by the kernel.
+func confineUnderHome(root, username, requested string) (string, error) {
+	if requested == "" {
+		return "", &rpc.RPCError{Code: rpc.CodeInvalidParams, Message: "path is required"}
+	}
+	if strings.ContainsRune(requested, 0) {
+		return "", &rpc.RPCError{Code: rpc.CodeInvalidParams, Message: "path contains NUL"}
+	}
+	if strings.ContainsRune(requested, '\\') {
+		return "", &rpc.RPCError{Code: rpc.CodeInvalidParams, Message: "path contains backslash"}
+	}
+
+	home := filepath.Join(filepath.Clean(root), username)
+	p := requested
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(home, p)
+	}
+	p = filepath.Clean(p)
+
+	if p != home && !strings.HasPrefix(p, home+string(filepath.Separator)) {
+		return "", &rpc.RPCError{
+			Code:    rpc.CodeInvalidParams,
+			Message: "path escapes the account home",
+			Data:    map[string]any{"requested": p, "confined": home},
+		}
+	}
+
+	resolvedHome, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		// Home itself missing (fresh account): no existing prefix can redirect
+		// anything yet — fall back to the lexical form.
+		resolvedHome = home
+	}
+
+	deepest := ""
+	probe := p
+	for {
+		if _, err := os.Lstat(probe); err == nil {
+			deepest = probe
+			break
+		}
+		// Walk DOWN TO the home boundary only: everything at or above `home`
+		// is panel-controlled topology (confinement root, account parent),
+		// not attacker-planted. A fresh account has no existing prefix at
+		// all — nothing below home exists, so there is nothing to resolve.
+		if probe == home {
+			break
+		}
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			break
+		}
+		probe = parent
+	}
+	if deepest != "" {
+		resolved, err := filepath.EvalSymlinks(deepest)
+		if err == nil &&
+			resolved != resolvedHome &&
+			!strings.HasPrefix(resolved, resolvedHome+string(filepath.Separator)) {
+			return "", &rpc.RPCError{
+				Code:    rpc.CodeInvalidParams,
+				Message: "path resolves outside the account home",
+				Data:    map[string]any{"resolved": resolved},
+			}
+		}
+	}
+	return p, nil
+}

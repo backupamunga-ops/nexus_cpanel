@@ -14,10 +14,12 @@ import (
 
 // Deps carries everything handlers need.
 type Deps struct {
-	Verifier   *auth.Verifier
-	WAL        *wal.Queue
-	CgroupRoot string // cgroup v2 root; overridable in tests
-	HomeRoot   string // C13 confined root for hosting-account home dirs
+	Verifier    *auth.Verifier
+	WAL         *wal.Queue
+	CgroupRoot  string // cgroup v2 root; overridable in tests
+	HomeRoot    string // C13 confined root for hosting-account home dirs
+	VhostRoot   string // nginx vhost include dir; overridable in tests
+	NginxBinary string // nginx path; empty = exec.LookPath (tests inject a fake)
 }
 
 // Registry maps method names to handlers.
@@ -35,6 +37,9 @@ func NewRegistry(deps Deps) *Registry {
 	if deps.HomeRoot == "" {
 		deps.HomeRoot = defaultHomeRoot
 	}
+	if deps.VhostRoot == "" {
+		deps.VhostRoot = "/etc/nginx/conf.d"
+	}
 	r := &Registry{deps: deps, m: map[string]rpc.Handler{}}
 
 	// account.* (§4.1)
@@ -49,6 +54,15 @@ func NewRegistry(deps Deps) *Registry {
 
 	// isolation.* (§4.2) — M0: cgroup v2 slice provisioning only
 	r.m["isolation.provision"] = r.isolationProvision
+
+	// filesystem.* (§4.3) — P3: metadata ops (content ops land with ADR-0008)
+	r.m["filesystem.mkdir"] = r.filesystemMkdir
+
+	// nginx.* (§4.7) — P3: vhost lifecycle via the config-apply primitive
+	r.m["nginx.test"] = r.nginxTest
+	r.m["nginx.reload"] = r.nginxReload
+	r.m["nginx.apply_vhost"] = r.nginxApplyVhost
+	r.m["nginx.remove_vhost"] = r.nginxRemoveVhost
 
 	// system.* (§4.15) — M0 subset
 	r.m["system.health"] = r.systemHealth
