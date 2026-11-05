@@ -6,6 +6,7 @@ import { logout, SessionUser } from '../lib/api';
 
 const NAV: Array<{ href: string; label: string; adminOnly?: boolean }> = [
   { href: '/', label: 'Dashboard' },
+  { href: '/sites', label: 'Sites' },
   { href: '/accounts', label: 'Accounts' },
   { href: '/packages', label: 'Packages', adminOnly: true },
   { href: '/resellers', label: 'Resellers', adminOnly: true },
