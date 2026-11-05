@@ -13,7 +13,13 @@ import { AuditModule } from '../audit/audit.module';
 @Module({
   imports: [AuditModule],
   controllers: [AuthController],
-  providers: [AuthService, JwtService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
+  providers: [
+    AuthService,
+    // Factory: JwtService takes an optional plain-string test seam that Nest
+    // cannot reflect-inject; production reads AUTH_JWT_SECRET from env.
+    { provide: JwtService, useFactory: () => new JwtService() },
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+  ],
   exports: [AuthService, JwtService],
 })
 export class AuthModule {}

@@ -72,7 +72,19 @@ export class AccountsService {
     }
     const resolvedPackageId = await this.resolvePackageId(packageId);
 
-    const result = await this.agent.accountCreate(username, resolvedPackageId);
+    let result;
+    try {
+      result = await this.agent.accountCreate(username, resolvedPackageId);
+    } catch (e) {
+      // Privileged operations audit their failures too (C11/A5).
+      await this.audit.append({
+        operation: 'account.create',
+        parameters: { username, package_id: resolvedPackageId, error: (e as Error).message },
+        outcome: 'failure',
+        actorUserId: actorUserId ?? null,
+      });
+      throw e;
+    }
 
     const row = await this.prisma.$transaction(async (tx) => {
       const created = await tx.hostingAccount.create({
@@ -100,7 +112,18 @@ export class AccountsService {
 
   async suspend(id: string, actorUserId?: string): Promise<ManagedAccount> {
     const row = await this.requireAccount(id);
-    await this.agent.accountSuspend(row.username);
+    try {
+      await this.agent.accountSuspend(row.username);
+    } catch (e) {
+      await this.audit.append({
+        operation: 'account.suspend',
+        parameters: { username: row.username, account_id: row.id, error: (e as Error).message },
+        outcome: 'failure',
+        actorUserId: actorUserId ?? null,
+        hostingAccountId: row.id,
+      });
+      throw e;
+    }
     const updated = await this.prisma.$transaction(async (tx) => {
       const u = await tx.hostingAccount.update({
         where: { id: row.id },
@@ -140,7 +163,18 @@ export class AccountsService {
   /** Terminates the account: agent deletes the OS user; the row is soft-deleted. */
   async remove(id: string, actorUserId?: string): Promise<void> {
     const row = await this.requireAccount(id);
-    await this.agent.accountDelete(row.username);
+    try {
+      await this.agent.accountDelete(row.username);
+    } catch (e) {
+      await this.audit.append({
+        operation: 'account.delete',
+        parameters: { username: row.username, account_id: row.id, error: (e as Error).message },
+        outcome: 'failure',
+        actorUserId: actorUserId ?? null,
+        hostingAccountId: row.id,
+      });
+      throw e;
+    }
     await this.prisma.$transaction(async (tx) => {
       await tx.hostingAccount.update({
         where: { id: row.id },

@@ -1,7 +1,9 @@
 import { Controller, Get } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { Public } from '../auth/public.decorator';
 
-/** Platform meta endpoints (API spec §4.25). */
+/** Platform meta endpoints (API spec §4.25) — unauthenticated. */
+@Public()
 @Controller()
 export class HealthController {
   private readonly startedAt = Date.now();
