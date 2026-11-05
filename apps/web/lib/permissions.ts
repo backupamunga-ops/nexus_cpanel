@@ -15,6 +15,7 @@ export const WEB_KNOWN_PERMISSIONS: readonly string[] = [
   'account:list',
   'account:read',
   'account:resume',
+  'account:share',
   'account:suspend',
   'account:update',
   'audit:list',
