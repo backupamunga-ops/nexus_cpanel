@@ -21,6 +21,10 @@ export interface AuthenticatedRequest {
   headers: Record<string, string | string[] | undefined>;
   /** Route params, populated by Express; may be absent in unit tests. */
   params?: Record<string, string>;
+  /** Request body (JSON), populated by Express; may be absent in unit tests. */
+  body?: Record<string, unknown>;
+  /** Parsed query string, populated by Express; may be absent in unit tests. */
+  query?: Record<string, unknown>;
   /** Peer address, populated by Express; may be absent in unit tests. */
   remoteAddress?: string;
   auth?: AuthContext;

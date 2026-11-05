@@ -69,7 +69,22 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
   'reseller:update',
   'settings:read',
   'settings:write',
+  'site:create',
+  'site:delete',
+  'site:list',
+  'site:read',
+  'site:update',
 ];
+
+/**
+ * Permission families scoped to a HOSTING ACCOUNT (not to the server).
+ * Routes in these families resolve the owning hosting account from the
+ * request (route resource id, body.account_id or query.account_id) and
+ * authorize against the caller's active access row — the C7 ownership
+ * boundary. Visibility failures are 404, not 403 (API spec §3.2
+ * anti-enumeration). Grows family by family as P3 resources land.
+ */
+export const HOSTING_SCOPED_PREFIXES: readonly string[] = ['site:'];
 
 /**
  * Roles that may be granted through the sharing API (POST /accounts/{id}/shares).
@@ -101,10 +116,26 @@ export const ACCOUNT_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'account:resume',
     'account:share',
     'account:delete',
+    'site:list',
+    'site:read',
+    'site:create',
+    'site:update',
+    'site:delete',
   ],
-  admin: ['account:read', 'account:update', 'account:suspend', 'account:resume', 'account:share'],
-  member: ['account:read'],
-  readonly: ['account:read'],
+  admin: [
+    'account:read',
+    'account:update',
+    'account:suspend',
+    'account:resume',
+    'account:share',
+    'site:list',
+    'site:read',
+    'site:create',
+    'site:update',
+    'site:delete',
+  ],
+  member: ['account:read', 'site:list', 'site:read'],
+  readonly: ['account:read', 'site:list', 'site:read'],
 };
 
 /**

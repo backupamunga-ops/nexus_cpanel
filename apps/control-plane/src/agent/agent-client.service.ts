@@ -237,6 +237,60 @@ export class AgentClientService {
     return r.result;
   }
 
+  // ---- P3: sites & domains (filesystem.mkdir + nginx.* §4.3/§4.7) ----------
+
+  /** Creates a directory (and parents) inside the account home (C13-confined). */
+  async filesystemMkdir(
+    username: string,
+    path: string,
+    mode?: number,
+  ): Promise<{ path: string; created: boolean }> {
+    const params: Record<string, unknown> = { username, path, owner: username };
+    if (mode !== undefined) {
+      params['mode'] = mode;
+    }
+    const r = await this.call<{ path: string; created: boolean }>('filesystem.mkdir', params);
+    return r.result;
+  }
+
+  /** Applies a domain vhost: staging → atomic swap → health gate → rollback. */
+  async nginxApplyVhost(
+    domain: string,
+    content: string,
+  ): Promise<{ status: string; health_check: string; health_detail?: string; previous_existed: boolean }> {
+    const r = await this.call<{
+      status: string;
+      health_check: string;
+      health_detail?: string;
+      previous_existed: boolean;
+    }>('nginx.apply_vhost', { domain, content });
+    return r.result;
+  }
+
+  /** Removes a domain vhost (idempotent: absent is a valid answer). */
+  async nginxRemoveVhost(
+    domain: string,
+  ): Promise<{ status: string; health_check?: string; health_detail?: string }> {
+    const r = await this.call<{
+      status: string;
+      health_check?: string;
+      health_detail?: string;
+    }>('nginx.remove_vhost', { domain });
+    return r.result;
+  }
+
+  /** On-demand nginx config test (skipped with a reason when no binary). */
+  async nginxTest(): Promise<{ status: string; detail?: string }> {
+    const r = await this.call<{ status: string; detail?: string }>('nginx.test', {});
+    return r.result;
+  }
+
+  /** Graceful nginx reload (skipped with a reason when no binary). */
+  async nginxReload(): Promise<{ status: string; detail?: string }> {
+    const r = await this.call<{ status: string; detail?: string }>('nginx.reload', {});
+    return r.result;
+  }
+
   /** Exposed for tests: the exact bytes that were signed. */
   static signatureInput(
     method: string,

@@ -3,11 +3,13 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import {
   ACCOUNT_ROLE_PERMISSIONS,
+  HOSTING_SCOPED_PREFIXES,
   PERMISSION_KEY,
   SELF_PERMISSIONS,
   SESSION_ONLY_KEY,
@@ -15,6 +17,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { AuthenticatedRequest } from './request-context';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Global permission gate (security control C6, master spec §11.3).
@@ -105,6 +109,10 @@ export class PermissionsGuard implements CanActivate {
       return this.authorizeAccountPermission(permission, req);
     }
 
+    if (HOSTING_SCOPED_PREFIXES.some((p) => permission.startsWith(p))) {
+      return this.authorizeHostingResourcePermission(permission, req);
+    }
+
     if (permission.startsWith('package:')) {
       // Server-Admin-only until reseller-owned packages land (API spec §4.5);
       // tokens already passed the scope gate above, so an admin's scoped
@@ -158,5 +166,105 @@ export class PermissionsGuard implements CanActivate {
     }
     auth.accountRole = access.role;
     return true;
+  }
+
+  /**
+   * Hosting-account-scoped resources (P3: site:*, later file:/ssl:/php:/…).
+   *
+   * Resolves the owning hosting account from the request — in order:
+   *   1. `body.hosting_account_id` (collection creates: POST /domains)
+   *   2. `query.account_id` (account-scoped collections: GET /files)
+   *   3. the route's `:id` — a resource id, mapped to its owning account
+   *      through the schema FK chain (domain → account; subdomain/alias/
+   *      redirect/certificate → domain → account; ftp/ssh → account).
+   *
+   * The access-row check is identical to account:*; per API spec §3.2 a
+   * resource the caller cannot see is a 404 (never a 403 — existence must
+   * not be enumerable across the ownership boundary).
+   */
+  private async authorizeHostingResourcePermission(
+    permission: string,
+    req: AuthenticatedRequest,
+  ): Promise<boolean> {
+    const auth = req.auth;
+    if (!auth) {
+      throw new UnauthorizedException('authentication required');
+    }
+
+    const accountId = await this.resolveHostingAccountId(req);
+    if (!accountId) {
+      // No owning account in the request, or the referenced resource does
+      // not exist. Same answer for the caller either way (§3.2).
+      throw new NotFoundException('resource not found');
+    }
+
+    const access = await this.prisma.userHostingAccountAccess.findFirst({
+      where: {
+        user_id: auth.userId,
+        hosting_account_id: accountId,
+        revoked_at: null,
+      },
+      select: { role: true },
+    });
+    if (!access) {
+      // The resource exists but belongs to an account this caller cannot
+      // see — 404 keeps account existence non-enumerable (§3.2).
+      throw new NotFoundException('resource not found');
+    }
+
+    const granted = ACCOUNT_ROLE_PERMISSIONS[access.role] ?? [];
+    if (!granted.includes(permission)) {
+      // The caller CAN see the account (holds a role) but the role does not
+      // carry this capability — a real authorization failure, 403.
+      throw new ForbiddenException(`role '${access.role}' does not grant '${permission}'`);
+    }
+    auth.accountRole = access.role;
+    return true;
+  }
+
+  /** Resolves the owning hosting account id for the current request, if any. */
+  private async resolveHostingAccountId(req: AuthenticatedRequest): Promise<string | null> {
+    const bodyAccountId = (req.body as Record<string, unknown> | undefined)?.['hosting_account_id'];
+    if (typeof bodyAccountId === 'string' && bodyAccountId.length > 0) {
+      return bodyAccountId;
+    }
+    const queryAccountId = (req.query as Record<string, unknown> | undefined)?.['account_id'];
+    if (typeof queryAccountId === 'string' && queryAccountId.length > 0) {
+      return queryAccountId;
+    }
+
+    const id = req.params?.id;
+    if (typeof id !== 'string' || !UUID_RE.test(id)) {
+      return null;
+    }
+
+    // FK chain, cheapest first. The set grows as P3 families land
+    // (ftp_accounts, ssh_keys, certificates → domain). Every lookup is a
+    // PK/indexed read; only non-super-admin requests reach this path.
+    const domain = await this.prisma.domain.findFirst({
+      where: { id, deleted_at: null },
+      select: { hosting_account_id: true },
+    });
+    if (domain) return domain.hosting_account_id;
+
+    const subdomain = await this.prisma.subdomain.findFirst({
+      where: { id, deleted_at: null },
+      select: { domain: { select: { hosting_account_id: true } } },
+    });
+    if (subdomain) return subdomain.domain.hosting_account_id;
+
+    const alias = await this.prisma.domainAliase.findFirst({
+      where: { id, deleted_at: null },
+      select: { domain: { select: { hosting_account_id: true } } },
+    });
+    if (alias) return alias.domain.hosting_account_id;
+
+    const redirect = await this.prisma.redirect.findFirst({
+      where: { id, deleted_at: null },
+      select: { domain: { select: { hosting_account_id: true } } },
+    });
+    if (redirect) return redirect.domain.hosting_account_id;
+
+    return null;
   }
 }

@@ -1,4 +1,4 @@
-import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { ExecutionContext, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PermissionsGuard } from './permissions.guard';
 import { AuthContext } from './request-context';
@@ -20,6 +20,9 @@ function harness(opts: {
   isPublic?: boolean;
   params?: Record<string, string>;
   auth?: AuthContext | null;
+  body?: Record<string, unknown>;
+  query?: Record<string, unknown>;
+  domainRow?: { hosting_account_id: string } | null;
 }) {
   const prisma = {
     user: {
@@ -32,6 +35,12 @@ function harness(opts: {
         .fn()
         .mockResolvedValue(opts.accessRole ? { role: opts.accessRole } : null),
     },
+    domain: {
+      findFirst: jest.fn().mockResolvedValue(opts.domainRow === undefined ? null : opts.domainRow),
+    },
+    subdomain: { findFirst: jest.fn().mockResolvedValue(null) },
+    domainAliase: { findFirst: jest.fn().mockResolvedValue(null) },
+    redirect: { findFirst: jest.fn().mockResolvedValue(null) },
   };
   const reflector = {
     getAllAndOverride: jest.fn((_key: string) => {
@@ -43,6 +52,8 @@ function harness(opts: {
   const req = {
     headers: {},
     params: opts.params,
+    body: opts.body,
+    query: opts.query,
     auth: opts.auth === undefined ? { userId: PLAIN.id, sessionId: 's1' } : opts.auth,
   };
   const ctx: ExecutionContext = {
@@ -171,5 +182,79 @@ describe('PermissionsGuard (C6)', () => {
     const { guard, req, ctx } = harness({ permission: 'account:suspend', params: { id: 'acc-1' }, accessRole: 'owner' });
     await guard.canActivate(ctx);
     expect(req.auth!.accountRole).toBe('owner');
+  });
+});
+
+describe('PermissionsGuard — hosting-scoped resources (site:*, P3)', () => {
+  const ACC = '01900000-0000-7000-8000-00000000a001';
+  const DOMAIN_ID = '01900000-0000-7000-8000-00000000d001';
+
+  it('resolves the account through the domain FK chain and grants the owner', async () => {
+    const { guard, req, ctx } = harness({
+      permission: 'site:read',
+      params: { id: DOMAIN_ID },
+      domainRow: { hosting_account_id: ACC },
+      accessRole: 'owner',
+    });
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    expect(req.auth!.accountRole).toBe('owner');
+  });
+
+  it('super admin passes without resource lookups', async () => {
+    const { guard, prisma, ctx } = harness({
+      permission: 'site:delete',
+      params: { id: DOMAIN_ID },
+      user: ADMIN,
+    });
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    expect(prisma.domain.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('unknown resource id → 404 (existence not enumerable)', async () => {
+    const { guard, ctx } = harness({ permission: 'site:read', params: { id: DOMAIN_ID } });
+    await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException);
+  });
+
+  it('resource exists but caller has no access row → 404, not 403 (API spec §3.2)', async () => {
+    const { guard, ctx } = harness({
+      permission: 'site:read',
+      params: { id: DOMAIN_ID },
+      domainRow: { hosting_account_id: ACC },
+      accessRole: null,
+    });
+    await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException);
+  });
+
+  it('member role can read but not update (role does not grant → 403)', async () => {
+    const base = {
+      params: { id: DOMAIN_ID },
+      domainRow: { hosting_account_id: ACC },
+      accessRole: 'member',
+    };
+    const read = harness({ permission: 'site:read', ...base });
+    await expect(read.guard.canActivate(read.ctx)).resolves.toBe(true);
+    const update = harness({ permission: 'site:update', ...base });
+    await expect(update.guard.canActivate(update.ctx)).rejects.toThrow(ForbiddenException);
+  });
+
+  it('collection create resolves the account from body.hosting_account_id', async () => {
+    const { guard, prisma, ctx } = harness({
+      permission: 'site:create',
+      body: { hosting_account_id: ACC },
+      accessRole: 'admin',
+    });
+    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    expect(prisma.domain.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('collection create without body account context → 404', async () => {
+    const { guard, ctx } = harness({ permission: 'site:create', body: {} });
+    await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException);
+  });
+
+  it('non-uuid route ids never hit the database', async () => {
+    const { guard, prisma, ctx } = harness({ permission: 'site:read', params: { id: '../../etc' } });
+    await expect(guard.canActivate(ctx)).rejects.toThrow(NotFoundException);
+    expect(prisma.domain.findFirst).not.toHaveBeenCalled();
   });
 });
