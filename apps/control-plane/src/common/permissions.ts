@@ -55,6 +55,11 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
   'auth:2fa',
   'auth:logout',
   'auth:tokens',
+  'package:create',
+  'package:delete',
+  'package:list',
+  'package:read',
+  'package:update',
 ];
 
 /**

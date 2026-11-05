@@ -39,11 +39,11 @@ func NewRegistry(deps Deps) *Registry {
 
 	// account.* (§4.1)
 	r.m["account.create"] = r.accountCreate
-	r.m["account.modify"] = r.notImplementedYet
+	r.m["account.modify"] = r.accountModify
 	r.m["account.suspend"] = r.accountSuspend
 	r.m["account.resume"] = r.accountResume
 	r.m["account.delete"] = r.accountDelete
-	r.m["account.quota"] = r.notImplementedYet
+	r.m["account.quota"] = r.accountQuota
 	r.m["account.usage"] = r.accountUsage
 	r.m["account.list"] = r.accountList
 

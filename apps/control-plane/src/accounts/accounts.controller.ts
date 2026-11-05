@@ -42,12 +42,19 @@ export class AccountsController {
     );
   }
 
+  /**
+   * PATCH /accounts/{id}: applies per-account quota overrides
+   * (`{ quotas: {...} }`). Package/primary-domain changes follow when those
+   * features land; quota overrides are the piece the agent can enforce now.
+   */
   @Patch(':id')
   @RequirePermission('account:update')
-  async update(@Param('id') id: string, @Body() _body: unknown): Promise<unknown> {
-    // Full PATCH semantics (primary_domain, quotas_override) land in P2.
-    void _body;
-    return this.accounts.get(id);
+  async update(
+    @Param('id') id: string,
+    @Body() body: { quotas?: unknown },
+    @CurrentUser() user: AuthContext,
+  ): Promise<unknown> {
+    return this.accounts.updateQuotas(id, body.quotas, user.userId);
   }
 
   @Get(':id/usage')

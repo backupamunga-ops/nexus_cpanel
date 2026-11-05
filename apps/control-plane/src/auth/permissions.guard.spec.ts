@@ -93,6 +93,13 @@ describe('PermissionsGuard (C6)', () => {
     await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
   });
 
+  it('package:* is server-admin-only until resellers land (§4.5)', async () => {
+    const denied = harness({ permission: 'package:list' });
+    await expect(denied.guard.canActivate(denied.ctx)).rejects.toThrow(/server administrator/);
+    const allowed = harness({ user: ADMIN, permission: 'package:create' });
+    await expect(allowed.guard.canActivate(allowed.ctx)).resolves.toBe(true);
+  });
+
   it('denies account:create to non-super-admins (resellers land later in P2)', async () => {
     const { guard, ctx } = harness({ permission: 'account:create' });
     await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);

@@ -105,6 +105,16 @@ export class PermissionsGuard implements CanActivate {
       return this.authorizeAccountPermission(permission, req);
     }
 
+    if (permission.startsWith('package:')) {
+      // Server-Admin-only until reseller-owned packages land (API spec §4.5);
+      // tokens already passed the scope gate above, so an admin's scoped
+      // token reaches here legitimately.
+      if (!user.is_super_admin) {
+        throw new ForbiddenException(`permission '${permission}' requires a server administrator`);
+      }
+      return true;
+    }
+
     throw new ForbiddenException(`permission '${permission}' requires an elevated role`);
   }
 

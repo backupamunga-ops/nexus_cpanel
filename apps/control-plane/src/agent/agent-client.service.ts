@@ -200,6 +200,38 @@ export class AgentClientService {
     await this.call('account.delete', { username, preserve_files: true });
   }
 
+  /** Applies cgroup v2 limits for an account (spec §4.1; agent returns applied/skipped). */
+  async accountQuota(
+    username: string,
+    quotas: Record<string, number>,
+  ): Promise<{ applied: string[]; skipped: Array<{ key: string; reason: string }> }> {
+    const r = await this.call<{ applied: string[]; skipped: Array<{ key: string; reason: string }> }>(
+      'account.quota',
+      { username, quotas },
+    );
+    return r.result;
+  }
+
+  /** Modifies an existing account: quotas and/or isolation profile (spec §4.1). */
+  async accountModify(
+    username: string,
+    opts: { quotas?: Record<string, number>; isolation_profile?: string } = {},
+  ): Promise<{ status: string; applied: string[]; skipped?: Array<{ key: string; reason: string }> }> {
+    const params: Record<string, unknown> = { username };
+    if (opts.quotas !== undefined) {
+      params['quotas'] = opts.quotas;
+    }
+    if (opts.isolation_profile !== undefined) {
+      params['isolation_profile'] = opts.isolation_profile;
+    }
+    const r = await this.call<{
+      status: string;
+      applied: string[];
+      skipped?: Array<{ key: string; reason: string }>;
+    }>('account.modify', params);
+    return r.result;
+  }
+
   async accountUsage(username: string): Promise<Record<string, number | string>> {
     const r = await this.call<Record<string, number | string>>('account.usage', { username });
     return r.result;

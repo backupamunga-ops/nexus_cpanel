@@ -78,3 +78,20 @@ var _ = syscall.Getpid
 
 var _ = bytes.MinRead
 var _ = fmt.Sprintf
+
+// shadowLocked reports whether the account's shadow entry is locked
+// ("!" / "*" prefix — the state `passwd -l` produces). ok=false when the
+// shadow entry is missing or unreadable; callers treat that as unknown.
+func shadowLocked(username string) (locked bool, ok bool) {
+	data, err := os.ReadFile("/etc/shadow")
+	if err != nil {
+		return false, false
+	}
+	for _, line := range splitLines(data) {
+		f := splitColon(line)
+		if len(f) >= 2 && f[0] == username {
+			return strings.HasPrefix(f[1], "!") || strings.HasPrefix(f[1], "*") || f[1] == "L", true
+		}
+	}
+	return false, false
+}

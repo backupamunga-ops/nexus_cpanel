@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { AgentClientService } from '../agent/agent-client.service';
 import { AuditAppender, InjectAudit } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { mergeQuotas, validateQuotaSet, QuotaSet } from '../packages/packages.service';
 
 /**
  * Hosting account lifecycle — M0 slice of API spec §4.4.
@@ -236,6 +237,81 @@ export class AccountsService {
     this.logger.log(`deleted hosting account ${row.username}`);
   }
 
+  /**
+   * Applies per-account quota overrides (API spec PATCH /accounts/{id},
+   * permission account:update — owner/admin per §11.3). The merge order is
+   * package quotas ← override (override wins); the MERGED set is validated
+   * and sent to the agent (cgroup v2 enforcement: cpu/mem/processes; disk
+   * and inodes come back as `skipped` until filesystem.quota lands — the
+   * audit entry records that gap explicitly). The DB stores the OVERRIDE
+   * partial (the column's documented semantics); enforcement always
+   * recomputes the merge, so a later package change re-bases cleanly.
+   */
+  async updateQuotas(
+    id: string,
+    overrideInput: unknown,
+    actorUserId?: string,
+  ): Promise<ManagedAccount & { quotas_override: QuotaSet; applied: string[]; skipped: Array<{ key: string; reason: string }> }> {
+    const row = await this.requireAccount(id);
+    if (!overrideInput || typeof overrideInput !== 'object' || Array.isArray(overrideInput)) {
+      throw new BadRequestException('quotas override must be an object');
+    }
+    if (Object.keys(overrideInput as Record<string, unknown>).length === 0) {
+      throw new BadRequestException('quotas override must set at least one key');
+    }
+    const override = validateQuotaSet(overrideInput, 'quotas_override');
+
+    const pkg = await this.prisma.package.findFirst({ where: { id: row.package_id } });
+    if (!pkg) {
+      throw new NotFoundException('package not found for this account');
+    }
+    const merged = mergeQuotas((pkg.quotas ?? {}) as QuotaSet, override);
+
+    try {
+      const applied = await this.agent.accountQuota(row.username, merged as Record<string, number>);
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const u = await tx.hostingAccount.update({
+          where: { id: row.id },
+          data: { quotas_override: override as object },
+        });
+        await this.audit.appendWithClient(tx, {
+          operation: 'account.quota',
+          parameters: {
+            username: row.username,
+            account_id: row.id,
+            override,
+            applied: applied.applied,
+            skipped: applied.skipped,
+          },
+          outcome: 'success',
+          actorUserId: actorUserId ?? null,
+          hostingAccountId: row.id,
+        });
+        return u;
+      });
+      return {
+        ...rowToManaged(updated),
+        quotas_override: override,
+        applied: applied.applied,
+        skipped: applied.skipped,
+      };
+    } catch (e) {
+      await this.audit.append({
+        operation: 'account.quota',
+        parameters: {
+          username: row.username,
+          account_id: row.id,
+          override,
+          error: (e as Error).message,
+        },
+        outcome: 'failure',
+        actorUserId: actorUserId ?? null,
+        hostingAccountId: row.id,
+      });
+      throw e;
+    }
+  }
+
   async usage(id: string): Promise<Record<string, number | string>> {
     const row = await this.requireAccount(id);
     return this.agent.accountUsage(row.username);
@@ -250,25 +326,28 @@ export class AccountsService {
   }
 
   /**
-   * M0 package seam: accepts a real package UUID, or resolves/creates the
-   * bootstrap "Default" package (packages CRUD lands in P2).
+   * Resolves the account's package: a valid UUID must point at a live,
+   * active package (BadRequest otherwise — silent fallbacks would hide
+   * operator typos); the legacy non-UUID 'default' alias keeps resolving to
+   * the bootstrap Default package (M0 compat, seeded on demand).
    */
   private async resolvePackageId(packageId: string): Promise<string> {
     if (UUID_RE.test(packageId)) {
       const found = await this.prisma.package.findFirst({
-        where: { id: packageId, is_active: true },
+        where: { id: packageId, is_active: true, deleted_at: null },
         select: { id: true },
       });
       if (found) {
         return found.id;
       }
+      throw new BadRequestException('package not found or inactive');
     }
     const devPkg = await this.prisma.package.upsert({
       where: { id: '00000000-0000-0000-0000-000000000000' },
       create: {
         id: '00000000-0000-0000-0000-000000000000',
         name: 'Default',
-        description: 'Bootstrap package (M0 seam)',
+        description: 'Bootstrap package (legacy alias)',
         quotas: {},
         features: {},
         php_versions: [],

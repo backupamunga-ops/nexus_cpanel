@@ -68,6 +68,10 @@ async function makeService() {
     isolationProvision: jest.fn().mockResolvedValue(undefined),
     accountDelete: jest.fn().mockResolvedValue(undefined),
     accountUsage: jest.fn().mockResolvedValue({ disk_mb: 12, cpu_percent: 0.4 }),
+    accountQuota: jest
+      .fn()
+      .mockResolvedValue({ applied: ['cpu'], skipped: [] }),
+    accountModify: jest.fn().mockResolvedValue({ status: 'active', applied: [] }),
   };
   const audit = new InMemoryAuditService();
   const svc = new AccountsService(prisma as never, agent as never, audit);
@@ -192,5 +196,66 @@ describe('AccountsService (M0 slice)', () => {
 
     const nobody = await svc.list({ userId: '01900000-0000-7000-8000-0000000000ff' });
     expect(nobody.data).toEqual([]);
+  });
+});
+
+describe('AccountsService.updateQuotas (packages → agent quota path)', () => {
+  it('merges package quotas with the override, applies via agent, persists the override partial', async () => {
+    const { svc, prisma, agent, audit } = await makeService();
+    const account = await svc.create('alice', 'pkg-default');
+
+    (prisma.package.findFirst as jest.Mock).mockResolvedValue({
+      id: account.package_id,
+      quotas: { cpu: 2, mem_mb: 1024, disk_mb: 10240 },
+    });
+    agent.accountQuota.mockResolvedValue({
+      applied: ['cpu', 'mem_mb', 'processes'],
+      skipped: [{ key: 'disk_mb', reason: 'requires filesystem.quota (not yet enforced)' }],
+    });
+
+    const res = await svc.updateQuotas(account.id, { processes: 200, disk_mb: 20480 }, ACTOR);
+
+    // The agent received the MERGED set (override wins).
+    expect(agent.accountQuota).toHaveBeenCalledWith('alice', {
+      cpu: 2,
+      mem_mb: 1024,
+      disk_mb: 20480,
+      processes: 200,
+    });
+    // The DB stored the OVERRIDE partial (column semantics), not the merge.
+    const txData = prisma.hostingAccount.update.mock.calls.at(-1)![0].data;
+    expect(txData.quotas_override).toEqual({ processes: 200, disk_mb: 20480 });
+    expect(res.quotas_override).toEqual({ processes: 200, disk_mb: 20480 });
+    expect(res.applied).toEqual(['cpu', 'mem_mb', 'processes']);
+    expect(res.skipped).toHaveLength(1);
+    // The audit entry records the enforcement gap explicitly.
+    const entry = audit.list().at(-1)!;
+    expect(entry.operation).toBe('account.quota');
+    expect(entry.outcome).toBe('success');
+  });
+
+  it('rejects unknown or empty overrides before touching the agent', async () => {
+    const { svc, agent } = await makeService();
+    const account = await svc.create('alice', 'pkg-default');
+    await expect(svc.updateQuotas(account.id, { bogus_key: 5 }, ACTOR)).rejects.toThrow(BadRequestException);
+    await expect(svc.updateQuotas(account.id, {}, ACTOR)).rejects.toThrow(/at least one key/);
+    await expect(svc.updateQuotas(account.id, 'cpu:2', ACTOR)).rejects.toThrow(/must be an object/);
+    expect(agent.accountQuota).not.toHaveBeenCalled();
+  });
+
+  it('agent failure is audited and propagates — the override is not persisted', async () => {
+    const { svc, prisma, agent, audit } = await makeService();
+    const account = await svc.create('alice', 'pkg-default');
+    (prisma.package.findFirst as jest.Mock).mockResolvedValue({
+      id: account.package_id,
+      quotas: {},
+    });
+    agent.accountQuota.mockRejectedValue(new Error('agent unreachable'));
+
+    await expect(svc.updateQuotas(account.id, { cpu: 1 }, ACTOR)).rejects.toThrow('agent unreachable');
+    const entry = audit.list().at(-1)!;
+    expect(entry.operation).toBe('account.quota');
+    expect(entry.outcome).toBe('failure');
+    expect(prisma.hostingAccount.update).not.toHaveBeenCalled();
   });
 });
