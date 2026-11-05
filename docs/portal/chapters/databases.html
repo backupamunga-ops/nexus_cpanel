@@ -10,45 +10,98 @@
 <div class="portal">
   <aside>
     <div class="brand">NexusPanel Docs</div>
-    <div class="tag">v0.1.0-m0 · preview</div>
-    <div class="group">Start here</div>
-    <nav>
-      <a href="getting-started.html">Getting started</a>
-      <a href="first-account.html">Your first hosting account</a>
-    </nav>
+    <div class="tag">v0.4.0 · P4</div>
     <div class="group">Admin guide</div>
     <nav>
-      <a href="accounts.html">Accounts & packages</a>
-      <a href="audit.html">Audit log & chain</a>
+      <a href="accounts.html">Accounts &amp; packages</a>
+      <a href="sites.html">Sites &amp; domains</a>
+      <a href="files.html">Files, FTP &amp; SSH</a>
+      <a href="dns.html">DNS zones</a>
+      <a href="email.html">Email</a>
+      <a class="active" href="databases.html">Databases</a>
+      <a href="ssl.html">SSL certificates</a>
     </nav>
     <div class="back"><a href="../index.html">← Documentation home</a></div>
   </aside>
   <main>
     <h1>Databases</h1>
     <p class="lede">
-      This chapter opens with its build phase. The scope below is committed in
-      the master specification; nothing here is live in the M0 preview.
+      Customer databases on the node, MariaDB 11 only in v1.0 (ADR-0001).
+      The agent provisions over the local Unix socket through a
+      <code>DatabaseEngineAdapter</code> seam — MySQL 8 and PostgreSQL arrive
+      in v1.2 as additional adapters, not rewrites, and are rejected with a
+      clear message until then (never silently aliased).
     </p>
 
-    <p><span class="badge">planned for P4</span></p>
+    <img class="screenshot" src="../static/screenshots/p4/11-databases-detail.png"
+         alt="Databases panel: database list, users and grants, credential tools">
 
-    <h2>Planned scope</h2>
+    <h2>Create a database <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Open <strong>Databases</strong>, pick a hosting account, and create a
+      database. The name must start with a letter (lowercase letters, digits,
+      underscore). If you omit the DB user, one is derived from the account
+      and database names; if you omit the password, the panel generates a
+      24-character one. Provisioning is all-or-nothing: a failed user
+      creation rolls the database back — no half-provisioned pairs.
+    </p>
+    <p>
+      Package limits are enforced before any node call:
+      <code>db_count</code> caps how many databases the account may have;
+      <code>db_size_mb</code> caps per-database size (checked when the size
+      is refreshed).
+    </p>
+
+    <h2>Users &amp; grants <span class="badge ok">live</span></h2>
+    <p>
+      Least privilege by default: the primary user gets exactly
+      <code>ALL PRIVILEGES</code> on its one database, from
+      <code>localhost</code> unless you pass an explicit host. Extra users
+      (e.g. a read-only reporting login) are granted through the same
+      panel — each grant is an audited <code>db:manage</code> operation. The
+      primary user cannot be deleted through the user editor; delete the
+      database instead.
+    </p>
+
+    <h2>Credentials <span class="badge ok">encrypted at rest</span></h2>
     <ul>
-      <li>MariaDB 11 provisioning: databases, users, grants</li>
-      <li>Dump and restore with verification</li>
-      <li>phpMyAdmin single sign-on</li>
+      <li>The credential is stored as an <strong>AES-256-GCM envelope</strong>
+        (SecretBox, ADR-0009/0015) — decrypt only at point of use.</li>
+      <li><strong>Connection string</strong> and <strong>Reveal password</strong>
+        are interactive-session-only: API tokens cannot mint working database
+        credentials. Reveals are audited with a fingerprint — the audit trail
+        never carries the material itself.</li>
+      <li>The agent receives the password exactly once (at user creation);
+        MariaDB keeps its own hash afterwards. Nothing credential-bearing is
+        written to panel logs, the WAL, or audit payloads.</li>
     </ul>
 
-    <div class="callout">
-      Docs ship together with the feature (Definition of Done, BUILD_PLAN §1) —
-      when databases goes live, this page gets full procedures and
-      regenerated screenshots in the same merge.
-    </div>
+    <h2>Tools <span class="badge ok">live</span></h2>
+    <ul>
+      <li><strong>Refresh size</strong> — live read from
+        <code>information_schema</code>, cached on the row; exceeding the
+        package cap logs a warning (the over-quota policy response lands with
+        the job framework, B13).</li>
+      <li><strong>Dump to home</strong> — writes a dump confined under the
+        account's own home (C13 path rules), mode 0600. Restores read a dump
+        back from the account home only.</li>
+      <li><strong>phpMyAdmin SSO token</strong> — an HMAC-signed, 60-second
+        token binding the database and user. Honest note: the Adminer/phpMyAdmin
+        consumer plugin ships with the app installer (B14); until then the
+        token is real but has no consumer — stated, not hidden.</li>
+    </ul>
 
-    <div class="pager">
-      <a href="../index.html">← Documentation home</a>
-      <a href="audit.html">Audit log &amp; chain →</a>
-    </div>
+    <img class="screenshot" src="../static/screenshots/p4/10-databases.png"
+         alt="Databases panel overview with the engine banner">
+
+    <h2>Not yet (honest list)</h2>
+    <ul>
+      <li>MySQL 8 / PostgreSQL engines — v1.2 behind the adapter seam (ADR-0001).</li>
+      <li>Scheduled dumps — arrive with the backup framework (B10); today's
+        dump is an on-demand operator tool.</li>
+      <li>phpMyAdmin/Adminer consumer for the SSO token — B14 app installer.</li>
+      <li>Over-quota enforcement responses — B13 job framework.</li>
+    </ul>
   </main>
 </div>
 </body>

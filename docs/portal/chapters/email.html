@@ -10,45 +10,144 @@
 <div class="portal">
   <aside>
     <div class="brand">NexusPanel Docs</div>
-    <div class="tag">v0.1.0-m0 · preview</div>
-    <div class="group">Start here</div>
-    <nav>
-      <a href="getting-started.html">Getting started</a>
-      <a href="first-account.html">Your first hosting account</a>
-    </nav>
+    <div class="tag">v0.4.0 · P4</div>
     <div class="group">Admin guide</div>
     <nav>
-      <a href="accounts.html">Accounts & packages</a>
-      <a href="audit.html">Audit log & chain</a>
+      <a href="accounts.html">Accounts &amp; packages</a>
+      <a href="sites.html">Sites &amp; domains</a>
+      <a href="files.html">Files, FTP &amp; SSH</a>
+      <a href="dns.html">DNS zones</a>
+      <a class="active" href="email.html">Email</a>
+      <a href="databases.html">Databases</a>
+      <a href="ssl.html">SSL certificates</a>
     </nav>
     <div class="back"><a href="../index.html">← Documentation home</a></div>
   </aside>
   <main>
     <h1>Email</h1>
     <p class="lede">
-      This chapter opens with its build phase. The scope below is committed in
-      the master specification; nothing here is live in the M0 preview.
+      Mailboxes, aliases and autoresponders per mail domain. The division of
+      labor is fixed by ADR-0013: the agent owns everything that is a file on
+      the node (Postfix maps, maildirs, Sieve scripts), the panel owns the
+      registry and <strong>all credentials</strong> — Dovecot authenticates
+      against the panel database through a read-only SQL userdb, so mailbox
+      passwords never touch the agent.
     </p>
 
-    <p><span class="badge">planned for P4</span></p>
+    <img class="screenshot" src="../static/screenshots/p4/09-email-domain.png"
+         alt="Email panel: mail domain with mailboxes, aliases and autoresponders">
 
-    <h2>Planned scope</h2>
+    <h2>Delivery default <span class="badge ok">constitutional</span></h2>
+    <p>
+      Outbound mail from your applications hands off to the <strong>server-wide
+      SMTP relay</strong> (ADR-0002) — that is the delivery default for every
+      account. A self-hosted MTA receiving mail for your domains is an explicit
+      opt-in. The email screen states this on every visit; nothing on it claims
+      routing that is not configured.
+    </p>
+
+    <h2>Mail domains <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Open <strong>Email</strong>, pick a hosting account, and register a mail
+      domain. The agent adds it to the managed Postfix virtual-domain map and
+      rebuilds the map; if the node cannot rebuild the maps (no <code>postmap</code>),
+      the response says so — routing stays down until it is, and the panel
+      logs it loudly. Deleting a domain is refused while mailboxes or aliases
+      exist: the panel never orphans node-side state.
+    </p>
+
+    <h2>Mailboxes <span class="badge ok">live in the panel</span></h2>
     <ul>
-      <li>Postfix/Dovecot: domains, mailboxes, aliases, catch-alls</li>
-      <li>DKIM signing and queue tools</li>
-      <li>Server-wide SMTP relay phase (see ADR-0002)</li>
+      <li><strong>Quotas</strong> per mailbox (MB), capped by the account's
+        package (<code>mailbox_quota_mb</code>); the number of mailboxes is
+        capped by <code>mailbox_count</code>. Both are enforced before any
+        node call.</li>
+      <li><strong>Passwords</strong> are hashed in the control plane with
+        Dovecot's native <code>{SSHA512}</code> scheme and verified by
+        Dovecot's SQL userdb. Rotation is a panel-database update — the agent
+        is never in the password path. The password endpoint is
+        session-only: a stolen automation token cannot mint working mailbox
+        credentials.</li>
+      <li><strong>Deletion</strong> removes the maildir from the node, or
+        preserves it under <code>vmail/.trash/&lt;email&gt;-&lt;timestamp&gt;</code>
+        when you tick <em>preserve mail</em>. Aliases pointing at the mailbox
+        are cleaned up with it.</li>
     </ul>
 
-    <div class="callout">
-      Docs ship together with the feature (Definition of Done, BUILD_PLAN §1) —
-      when email goes live, this page gets full procedures and
-      regenerated screenshots in the same merge.
-    </div>
+    <h2>Aliases &amp; catch-alls <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Aliases map a local part (<code>info</code>) or the whole domain
+      (<code>@example.com</code> catch-all) to a full destination address.
+      Self-loops are rejected; duplicates conflict; everything is applied to
+      the managed Postfix alias map and audited.
+    </p>
 
-    <div class="pager">
-      <a href="../index.html">← Documentation home</a>
-      <a href="audit.html">Audit log &amp; chain →</a>
-    </div>
+    <h2>Autoresponders <span class="badge ok">live</span>
+      <span class="badge">window flipping at B13</span></h2>
+    <p>
+      A per-mailbox vacation message written as a Sieve script in the mailbox.
+      Scheduling windows (starts/ends) are stored and shown honestly as
+      <em>scheduled</em> or <em>expired</em>; flipping the Sieve file at
+      window edges arrives with the job framework (B13).
+    </p>
+
+    <h2>Deliverability — DKIM, SPF, DMARC <span class="badge ok">live</span>
+      <span class="badge">needs a managed DNS zone</span></h2>
+    <img class="screenshot" src="../static/screenshots/p4/08-email.png"
+         alt="Email panel with the deliverability and queue sections">
+    <p>
+      One pass on the domain's <strong>Deliverability</strong> card:
+    </p>
+    <ul>
+      <li><strong>DKIM</strong> — the panel mints an RSA-2048 keypair, the
+        agent stores the private key (0600) and maintains opendkim's
+        KeyTable/SigningTable, and the <code>&lt;selector&gt;._domainkey</code>
+        TXT record is published through the panel's own DNS module — one
+        writer, one audit chain. If the node lacks opendkim, the badge reads
+        <em>stored — not signing</em> instead of pretending. Rotation issues a
+        new selector and keeps the old TXT published until you remove it.</li>
+      <li><strong>SPF</strong> — publishes <code>v=spf1 mx a ~all</code> at
+        the apex; replaces a previous panel-written record, never silently
+        duplicates one.</li>
+      <li><strong>DMARC</strong> — publishes <code>_dmarc</code> with your
+        policy (<code>none</code> / <code>quarantine</code> / <code>reject</code>)
+        and optional <code>rua</code> reports address.</li>
+    </ul>
+    <p>
+      All three require a <strong>managed DNS zone</strong> for the domain
+      (create it on the DNS page first). Without one, the endpoints return
+      the exact record for manual publishing instead of claiming success.
+    </p>
+
+    <h2>Mail queue <span class="badge ok">live</span></h2>
+    <p>
+      Server-wide queue tools read <code>postqueue -p</code> verbatim — queue
+      id, size, arrival, sender, recipient and the deferred reason — with
+      per-message flush/requeue and a whole-queue flush. A node without
+      postqueue produces a loud error, never a fake empty queue.
+    </p>
+
+    <h2>SMTP relay profile <span class="badge ok">stored</span>
+      <span class="badge">not yet routing — honest</span></h2>
+    <p>
+      The server-wide relay profile (SES / Mailgun / Postmark / custom) is
+      configured under the relay card: host, port, username and credentials
+      encrypted at rest (AES-256-GCM, ADR-0009). A blank password keeps the
+      stored credentials. Storing the profile does <strong>not</strong> yet
+      rewrite the node's Postfix transport — that wiring lands with the
+      config-engine pipeline, and the badge says so until then. Per-account
+      overrides ship in v1.2 (ADR-0002 stands).
+    </p>
+
+    <h2>Not yet (honest list)</h2>
+    <ul>
+      <li>Webmail — planned (P7 app catalog).</li>
+      <li>Mailing lists — schema exists, UI not built.</li>
+      <li>Autoresponder window flipping on the node — B13 job framework.</li>
+      <li>Relay transport enforcement on the node — config-engine Postfix pipeline.</li>
+      <li>Self-hosted MTA opt-in toggle — the wizard covers records; transport
+        selection arrives with the config-engine pipeline.</li>
+    </ul>
   </main>
 </div>
 </body>
