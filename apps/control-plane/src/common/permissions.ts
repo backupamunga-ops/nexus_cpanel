@@ -54,6 +54,7 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
   'audit:verify',
   'auth:2fa',
   'auth:logout',
+  'auth:sessions',
   'auth:tokens',
   'package:create',
   'package:delete',
@@ -91,5 +92,6 @@ export const ACCOUNT_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
 export const SELF_PERMISSIONS: ReadonlySet<string> = new Set([
   'auth:2fa',
   'auth:logout',
+  'auth:sessions',
   'auth:tokens',
 ]);

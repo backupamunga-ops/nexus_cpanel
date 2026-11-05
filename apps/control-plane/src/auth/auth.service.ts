@@ -1,6 +1,7 @@
 import {
   Injectable,
   Logger,
+  NotFoundException,
   OnModuleInit,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -107,6 +108,26 @@ export interface TokenPairResponse {
   expires_in: number;
   user: { id: string; email: string; display_name: string; is_super_admin: boolean };
 }
+
+/** One row of GET /auth/sessions (never exposes the token material itself). */
+export interface SessionView {
+  id: string;
+  ip: string | null;
+  user_agent: string | null;
+  device_fingerprint: string | null;
+  created_at: Date;
+  last_used_at: Date;
+  expires_at: Date;
+  /** True for the session this request was made with. */
+  current: boolean;
+}
+
+/**
+ * Internal alias: login/refresh return the FULL pair including refresh
+ * material; the controller owns the transport decision (httpOnly cookie vs
+ * §4.1 body) and strips the token from the body in cookie mode.
+ */
+export type AuthSessionTokens = TokenPairResponse;
 
 const LOCKOUT_THRESHOLD = Number(process.env.LOCKOUT_THRESHOLD ?? 5);
 const LOCKOUT_MINUTES = Number(process.env.LOCKOUT_MINUTES ?? 15);
@@ -331,6 +352,51 @@ export class AuthService implements OnModuleInit {
       data: { revoked_at: new Date() },
     });
     await this.audit.append({ operation: 'auth.logout', parameters: { session_id: sessionId }, outcome: 'success', actorUserId: userId });
+  }
+
+  /**
+   * GET /auth/sessions — the caller's own live sessions, newest-use first
+   * (API spec §4.1 "List own active sessions"). Revoked and expired rows are
+   * excluded server-side; `current` flags the presenting session so the UI
+   * can mark it and offer "sign out this device" distinctly.
+   */
+  async listSessions(userId: string, currentSessionId: string): Promise<SessionView[]> {
+    const rows = await this.prisma.userSession.findMany({
+      where: { user_id: userId, revoked_at: null, expires_at: { gt: new Date() } },
+      orderBy: { last_used_at: 'desc' },
+    });
+    return rows.map((s) => ({
+      id: s.id,
+      ip: s.ip,
+      user_agent: s.user_agent,
+      device_fingerprint: s.device_fingerprint,
+      created_at: s.created_at,
+      last_used_at: s.last_used_at,
+      expires_at: s.expires_at,
+      current: s.id === currentSessionId,
+    }));
+  }
+
+  /**
+   * DELETE /auth/sessions/{id} — revoke one of the caller's OWN sessions
+   * ("Revoke own session", §4.1). Unknown, foreign or already-revoked ids
+   * are a uniform 404: no enumeration of other users' sessions. Revoking
+   * the presenting session is allowed and behaves like logout.
+   */
+  async revokeSession(userId: string, sessionId: string): Promise<void> {
+    const result = await this.prisma.userSession.updateMany({
+      where: { id: sessionId, user_id: userId, revoked_at: null },
+      data: { revoked_at: new Date() },
+    });
+    if (result.count === 0) {
+      throw new NotFoundException();
+    }
+    await this.audit.append({
+      operation: 'auth.session.revoke',
+      parameters: { session_id: sessionId },
+      outcome: 'success',
+      actorUserId: userId,
+    });
   }
 
   private tokenPair(

@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { NotFoundException, UnauthorizedException } from '@nestjs/common';
 import * as crypto from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { InMemoryAuditService } from '../audit/audit.service';
@@ -113,6 +113,7 @@ interface PrismaMock {
     create: jest.Mock;
     update: jest.Mock;
     findUnique: jest.Mock;
+    findMany: jest.Mock;
     updateMany: jest.Mock;
   };
 }
@@ -124,7 +125,8 @@ async function makeAuth(user: object | null) {
       create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: SESSION_ID, ...data })),
       update: jest.fn(),
       findUnique: jest.fn(),
-      updateMany: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
   };
   const audit = new InMemoryAuditService();
@@ -376,5 +378,50 @@ describe('AuthService (C3 refresh rotation + reuse detection)', () => {
       data: { revoked_at: expect.any(Date) },
     });
     expect(audit.list().at(-1)?.operation).toBe('auth.logout');
+  });
+});
+
+describe('AuthService (C3 session inventory)', () => {
+  it('lists only live own sessions, flags the presenting one, and sorts newest-use first', async () => {
+    const { auth, prisma } = await makeAuth(fakeUser());
+    const now = Date.now();
+    // What the DB returns for the where-clause below: live rows only,
+    // newest-use first (revoked/expired rows are excluded server-side).
+    const rows = [
+      { id: SESSION_ID, ip: '10.0.0.1', user_agent: 'current', device_fingerprint: 'fp-A', created_at: new Date(now - 3000), last_used_at: new Date(now), expires_at: new Date(now + 60_000) },
+      { id: 's-old', ip: '10.0.0.9', user_agent: 'old', device_fingerprint: 'fp-old', created_at: new Date(now - 9000), last_used_at: new Date(now - 5000), expires_at: new Date(now + 60_000) },
+    ];
+    prisma.userSession.findMany.mockResolvedValue(rows);
+
+    const view = await auth.listSessions(USER_ID, SESSION_ID);
+    // findMany's where clause excludes revoked + expired server-side (asserted);
+    // the mock returns pre-filtered live rows.
+    expect(prisma.userSession.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { user_id: USER_ID, revoked_at: null, expires_at: { gt: expect.any(Date) } },
+      }),
+    );
+    expect(view.map((s) => s.id)).toEqual([SESSION_ID, 's-old']); // newest use first
+    expect(view.find((s) => s.id === SESSION_ID)?.current).toBe(true);
+    expect(view.find((s) => s.id === 's-old')?.current).toBe(false);
+  });
+
+  it('revokeSession revokes an own live session and audits it', async () => {
+    const { auth, prisma, audit } = await makeAuth(fakeUser());
+    await auth.revokeSession(USER_ID, 's-other');
+    expect(prisma.userSession.updateMany).toHaveBeenCalledWith({
+      where: { id: 's-other', user_id: USER_ID, revoked_at: null },
+      data: { revoked_at: expect.any(Date) },
+    });
+    expect(audit.list().at(-1)?.operation).toBe('auth.session.revoke');
+  });
+
+  it('revokeSession is a uniform 404 for unknown, foreign or already-revoked ids', async () => {
+    const { auth, prisma, audit } = await makeAuth(fakeUser());
+    prisma.userSession.updateMany.mockResolvedValue({ count: 0 });
+    await expect(auth.revokeSession(USER_ID, 'nope')).rejects.toThrow(NotFoundException);
+    await expect(auth.revokeSession(USER_ID, 'nope')).rejects.toThrow(NotFoundException); // same shape every time
+    // Nothing happened → nothing was audited (no enumeration breadcrumbs).
+    expect(audit.list().some((e) => e.operation === 'auth.session.revoke')).toBe(false);
   });
 });
