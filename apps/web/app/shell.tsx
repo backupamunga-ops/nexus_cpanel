@@ -4,17 +4,19 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { logout, SessionUser } from '../lib/api';
 
-const NAV = [
+const NAV: Array<{ href: string; label: string; adminOnly?: boolean }> = [
   { href: '/', label: 'Dashboard' },
   { href: '/accounts', label: 'Accounts' },
+  { href: '/packages', label: 'Packages', adminOnly: true },
   { href: '/sessions', label: 'Sessions' },
   { href: '/settings', label: 'Security' },
   { href: '/tokens', label: 'API tokens' },
 ];
 
 /**
- * M0 shell: sidebar + dashboard. Milestone P2 introduces the full
- * navigation driven by RBAC permissions (screen specs: WS5).
+ * P2 shell: sidebar nav. Server-Admin-only entries (Packages) render only
+ * when the session user is a super admin — the PermissionsGuard remains the
+ * enforcement point; this is presentation, not authorization.
  */
 export default function Shell({
   children,
@@ -41,7 +43,7 @@ export default function Shell({
       <aside className="np-sidebar">
         <strong>NexusPanel</strong>
         <nav aria-label="Primary">
-          {NAV.map((item) => (
+          {NAV.filter((item) => !item.adminOnly || user?.is_super_admin).map((item) => (
             <Link key={item.href} href={item.href} data-active={active === item.href}>
               {item.label}
             </Link>
