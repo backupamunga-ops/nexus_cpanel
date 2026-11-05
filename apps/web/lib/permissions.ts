@@ -30,4 +30,9 @@ export const WEB_KNOWN_PERMISSIONS: readonly string[] = [
   'package:list',
   'package:read',
   'package:update',
+  'reseller:create',
+  'reseller:delete',
+  'reseller:list',
+  'reseller:read',
+  'reseller:update',
 ];

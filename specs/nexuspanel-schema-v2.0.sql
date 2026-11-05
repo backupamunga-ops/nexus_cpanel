@@ -55,6 +55,7 @@ CREATE TABLE user_sessions (
   device_fingerprint  text,
   ip                  inet,
   user_agent          text,
+  bound_host          text,                    -- C14: Host the session was created on (host-only)
   created_at          timestamptz NOT NULL DEFAULT now(),
   last_used_at        timestamptz NOT NULL DEFAULT now(),
   expires_at          timestamptz NOT NULL,

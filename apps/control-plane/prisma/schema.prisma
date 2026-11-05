@@ -58,6 +58,7 @@ model UserSession {
   device_fingerprint  String?
   ip                String?       @db.Inet
   user_agent        String?
+  bound_host        String?
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   last_used_at      DateTime      @default(now()) @db.Timestamptz(6)
   expires_at        DateTime      @db.Timestamptz(6)
