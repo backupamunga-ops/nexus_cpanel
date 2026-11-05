@@ -8,6 +8,7 @@ const NAV: Array<{ href: string; label: string; adminOnly?: boolean }> = [
   { href: '/', label: 'Dashboard' },
   { href: '/accounts', label: 'Accounts' },
   { href: '/packages', label: 'Packages', adminOnly: true },
+  { href: '/resellers', label: 'Resellers', adminOnly: true },
   { href: '/sessions', label: 'Sessions' },
   { href: '/settings', label: 'Security' },
   { href: '/tokens', label: 'API tokens' },
