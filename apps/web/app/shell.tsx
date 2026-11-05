@@ -37,6 +37,7 @@ const NAV_GROUPS: Array<{
     items: [
       { href: '/backups', label: 'Backups', icon: 'history' },
       { href: '/firewall', label: 'Firewall', icon: 'shield' },
+      { href: '/waf', label: 'Threat protection', icon: 'alert' },
       { href: '/settings', label: 'Security', icon: 'lock' },
       { href: '/sessions', label: 'Sessions', icon: 'activity' },
       { href: '/tokens', label: 'API tokens', icon: 'key' },

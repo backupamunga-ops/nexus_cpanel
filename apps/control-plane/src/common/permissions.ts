@@ -104,6 +104,8 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
   'package:list',
   'package:read',
   'package:update',
+  'security:manage',
+  'security:read',
   'reseller:create',
   'reseller:delete',
   'reseller:list',

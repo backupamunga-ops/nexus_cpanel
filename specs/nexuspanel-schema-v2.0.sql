@@ -478,6 +478,42 @@ CREATE TABLE modsecurity_policies (
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX uq_modsecurity_domain
+  ON modsecurity_policies (domain_id);
+
+-- Anti-malware (B12, ADR-0017): scans and quarantine findings. The findings
+-- registry mirrors what the agent quarantined; delete/restore of a
+-- quarantined artifact is an audited panel flow, never a raw file op.
+CREATE TABLE malware_scans (
+  id                  uuid PRIMARY KEY DEFAULT uuid_generate_v7(),
+  hosting_account_id  uuid REFERENCES hosting_accounts(id) ON DELETE CASCADE, -- NULL = server-wide
+  scope               text NOT NULL,            -- server | account | site
+  scope_path          text NOT NULL,
+  trigger             text NOT NULL DEFAULT 'manual', -- manual | scheduled (cron = B13)
+  status              text NOT NULL,            -- running | success | failed
+  files_scanned       integer NOT NULL DEFAULT 0,
+  infected_count      integer NOT NULL DEFAULT 0,
+  quarantined_count   integer NOT NULL DEFAULT 0,
+  started_at          timestamptz NOT NULL,
+  completed_at        timestamptz,
+  error_message       text,
+  created_at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ON malware_scans (hosting_account_id, started_at DESC);
+
+CREATE TABLE malware_findings (
+  id                  uuid PRIMARY KEY DEFAULT uuid_generate_v7(),
+  scan_id             uuid NOT NULL REFERENCES malware_scans(id) ON DELETE CASCADE,
+  file_path           text NOT NULL,            -- original path at scan time
+  signature           text NOT NULL,            -- ClamAV signature name
+  quarantined         boolean NOT NULL DEFAULT false,
+  quarantine_path     text,                     -- set when quarantined
+  deleted_at          timestamptz,              -- audited artifact delete
+  restored_at         timestamptz,              -- audited artifact restore
+  created_at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ON malware_findings (scan_id);
+CREATE INDEX ON malware_findings (quarantined) WHERE quarantined;
 
 -- ============================================================================
 -- BACKUPS

@@ -460,16 +460,27 @@ refusal. There is deliberately no ban endpoint: banning is fail2ban's job;
 the panel reads jails/bans live from the node and offers only an audited
 unban. `POST /firewall/fail2ban/unban` body: `{ "jail": "sshd", "ip": "203.0.113.9" }`.
 
-### 4.15a Security — WAF & anti-malware (B12, planned) — `/api/v1/security`
+### 4.15a Security — WAF & anti-malware (B12, live) — `/api/v1/security`
 
 | Method | Path | Auth | Permission |
 |---|---|---|---|
-| GET | `/security/modsecurity/{domain_id}` | jwt/token | `security:read` |
-| PATCH | `/security/modsecurity/{domain_id}` | jwt/token | `security:manage` |
+| GET | `/security/modsecurity` | jwt | `security:read` |
+| GET | `/security/modsecurity/{domain_id}` | jwt | `security:read` |
+| PATCH | `/security/modsecurity/{domain_id}` | jwt | `security:manage` |
 | POST | `/security/malware/scan` | jwt | `security:manage` |
+| GET | `/security/malware/scans` | jwt | `security:read` |
 | GET | `/security/malware/quarantine` | jwt | `security:read` |
 | POST | `/security/malware/quarantine/{id}/restore` | jwt | `security:manage` |
 | DELETE | `/security/malware/quarantine/{id}` | jwt | `security:manage` |
+
+Semantics (ADR-0017): the WAF policy is one nginx include per domain —
+`mode` off|detect|block, CRS `paranoia_level` 1|2, `exclusions` as CRS rule
+ids; every apply passes the nginx health gate and rolls back on failure,
+and lands a `config_versions` row (`target_type='waf_include'`). Malware
+scans quarantine infected files on the node (move, 0600 — never delete in
+place); quarantine `delete`/`restore` are confirmed, audited flows confined
+to the quarantine root and account homes respectively. DDL amendment:
+`malware_scans` + `malware_findings` (B12).
 
 ### 4.16 Backups — `/api/v1/backups`
 

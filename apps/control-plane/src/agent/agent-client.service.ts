@@ -1066,6 +1066,85 @@ export class AgentClientService {
     return r.result;
   }
 
+  // ---- waf.* + malware.* (§4.15a, ADR-0017) — B12 -------------------------
+
+  async wafApplyPolicy(
+    domain: string,
+    mode: 'off' | 'detect' | 'block',
+    paranoiaLevel = 1,
+    exclusions: string[] = [],
+  ): Promise<{ status: string; domain: string; mode: string; conf_path: string; health_check: string }> {
+    const r = await this.call<{
+      status: string;
+      domain: string;
+      mode: string;
+      conf_path: string;
+      health_check: string;
+    }>('waf.apply_policy', {
+      domain,
+      mode,
+      paranoia_level: paranoiaLevel,
+      exclusions,
+    });
+    return r.result;
+  }
+
+  async malwareScan(params: {
+    scope: string;
+    path: string;
+    move_infected?: boolean;
+  }): Promise<{
+    status: string;
+    scope: string;
+    path: string;
+    files_scanned: number;
+    infected_count: number;
+    findings: Array<{ path: string; signature: string; quarantine_path?: string }>;
+    engine: string;
+  }> {
+    const r = await this.call<{
+      status: string;
+      scope: string;
+      path: string;
+      files_scanned: number;
+      infected_count: number;
+      findings: Array<{ path: string; signature: string; quarantine_path?: string }>;
+      engine: string;
+    }>('malware.scan', params);
+    return r.result;
+  }
+
+  async malwareQuarantineList(): Promise<{
+    root: string;
+    entries: Array<{ path: string; size_bytes: number }>;
+  }> {
+    const r = await this.call<{
+      root: string;
+      entries: Array<{ path: string; size_bytes: number }>;
+    }>('malware.quarantine_list', {});
+    return r.result;
+  }
+
+  async malwareQuarantineDelete(path: string): Promise<{ status: string; path: string }> {
+    const r = await this.call<{ status: string; path: string }>('malware.quarantine_delete', {
+      path,
+    });
+    return r.result;
+  }
+
+  async malwareQuarantineRestore(
+    path: string,
+    username: string,
+    relPath: string,
+  ): Promise<{ status: string; path: string }> {
+    const r = await this.call<{ status: string; path: string }>('malware.quarantine_restore', {
+      path,
+      username,
+      rel_path: relPath,
+    });
+    return r.result;
+  }
+
   /** Exposed for tests: the exact bytes that were signed. */
   static signatureInput(
     method: string,

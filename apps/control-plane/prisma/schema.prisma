@@ -136,6 +136,7 @@ model HostingAccount {
   ssh_keys__hosting_account_id  SshKey[]      @relation("ssh_keys.hosting_account_id")
   trash_entries__hosting_account_id  TrashEntry[]  @relation("trash_entries.hosting_account_id")
   file_accounts__hosting_account_id  FileAccount[]  @relation("file_accounts.hosting_account_id")
+  malware_scans__hosting_account_id  MalwareScan[]  @relation("malware_scans.hosting_account_id")
   audit_entries__hosting_account_id  AuditEntry[]  @relation("audit_entries.hosting_account_id")
   migration_jobs__target_account_id  MigrationJob[]  @relation("migration_jobs.target_account_id")
   @@map("hosting_accounts")
@@ -521,6 +522,42 @@ model ModsecurityPolicy {
   updated_at        DateTime      @default(now()) @db.Timestamptz(6)
   domain            Domain        @relation("modsecurity_policies.domain_id", fields: [domain_id], references: [id], onDelete: Cascade)
   @@map("modsecurity_policies")
+  @@index([domain_id])
+}
+
+model MalwareScan {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  hosting_account_id  String?       @db.Uuid
+  scope             String
+  scope_path        String
+  trigger           String        @default("manual")
+  status            String
+  files_scanned     Int           @default(0)
+  infected_count    Int           @default(0)
+  quarantined_count  Int           @default(0)
+  started_at        DateTime      @db.Timestamptz(6)
+  completed_at      DateTime?     @db.Timestamptz(6)
+  error_message     String?
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  hosting_account   HostingAccount?  @relation("malware_scans.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
+  malware_findings__scan_id  MalwareFinding[]  @relation("malware_findings.scan_id")
+  @@map("malware_scans")
+  @@index([hosting_account_id, started_at(sort: Desc)])
+}
+
+model MalwareFinding {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  scan_id           String        @db.Uuid
+  file_path         String
+  signature         String
+  quarantined       Boolean       @default(false)
+  quarantine_path   String?
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  restored_at       DateTime?     @db.Timestamptz(6)
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  scan              MalwareScan   @relation("malware_findings.scan_id", fields: [scan_id], references: [id], onDelete: Cascade)
+  @@map("malware_findings")
+  @@index([scan_id])
 }
 
 model BackupDestination {

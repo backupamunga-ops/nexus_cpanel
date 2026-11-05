@@ -14,6 +14,7 @@ import { MailModule } from './mail/mail.module';
 import { DatabasesModule } from './databases/databases.module';
 import { BackupsModule } from './backups/backups.module';
 import { FirewallModule } from './firewall/firewall.module';
+import { SecurityModule } from './security/security.module';
 import { SslModule } from './ssl/ssl.module';
 import { PhpModule } from './php/php.module';
 import { ConfigModule } from './config/config.module';
@@ -41,6 +42,7 @@ import { PrismaModule } from './prisma/prisma.module';
     DatabasesModule,
     BackupsModule,
     FirewallModule,
+    SecurityModule,
     SslModule,
     PhpModule,
     ConfigModule,

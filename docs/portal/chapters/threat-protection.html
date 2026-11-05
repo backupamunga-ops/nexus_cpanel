@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Threat protection · NexusPanel Docs</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="portal">
+  <aside>
+    <div class="brand">NexusPanel Docs</div>
+    <div class="tag">v0.5.0 · P5</div>
+    <div class="group">Admin guide</div>
+    <nav>
+      <a href="accounts.html">Accounts &amp; packages</a>
+      <a href="sites.html">Sites &amp; domains</a>
+      <a href="files.html">Files, FTP &amp; SSH</a>
+      <a href="dns.html">DNS zones</a>
+      <a href="email.html">Email</a>
+      <a href="databases.html">Databases</a>
+      <a href="backups.html">Backups &amp; restore</a>
+      <a href="firewall.html">Firewall &amp; bans</a>
+      <a class="active" href="threat-protection.html">Threat protection</a>
+      <a href="ssl.html">SSL certificates</a>
+    </nav>
+    <div class="back"><a href="../index.html">← Documentation home</a></div>
+  </aside>
+  <main>
+    <h1>Threat protection (WAF &amp; virus scanning)</h1>
+    <p class="lede">
+      Every website gets two shields. The <strong>web application
+      firewall</strong> (ModSecurity with the OWASP Core Rule Set) filters
+      suspicious requests before they reach your code. The <strong>virus
+      scanner</strong> (ClamAV) walks site files on demand or on a schedule
+      and locks anything infected away in quarantine. Both are one-click to
+      change and safe by default.
+    </p>
+
+    <img class="screenshot" src="../static/screenshots/p4/23-waf.png"
+         alt="Threat protection panel: per-site WAF cards with off/watch/block, scan center and quarantine">
+
+    <h2>Per-site firewall posture <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Each site card offers three honest modes. <strong>Off</strong> removes
+      the site's WAF include entirely. <strong>Watch</strong> (detect) runs
+      the rule set in <code>DetectionOnly</code> — suspicious requests are
+      logged but still served, the safe way to learn what would have been
+      blocked. <strong>Block</strong> switches the engine to
+      <code>On</code>: the CRS verdict is enforced. There is also a
+      <em>paranoia level</em> (1 standard, 2 aggressive for high-value
+      sites), and rule exclusions for the rare false positive your
+      application genuinely triggers.
+    </p>
+    <p>
+      Changing the posture never edits a live ruleset line by line. The agent
+      writes the site's include, runs the <strong>nginx health gate</strong>
+      (<code>nginx -t</code> + reload) and — if the test fails — rolls the
+      file back, leaving the old posture running. Every applied posture is a
+      versioned row in the configuration engine, so WAF changes ride the same
+      history and rollback as every other vhost change (ADR-0017).
+    </p>
+
+    <h2>Virus scanning <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Start a scan for one account's files or the whole server. Infected
+      files are <strong>quarantined, never deleted in place</strong>: the
+      agent moves them into a locked quarantine area (structure preserved,
+      permissions tightened) and the panel records the finding with its
+      ClamAV signature. The scan table shows real counters — files scanned,
+      infected, quarantined — straight from the node.
+    </p>
+    <p>
+      The quarantine view is where the false-positive safety net lives.
+      <strong>Delete</strong> destroys a quarantined artifact after an
+      explicit confirmation, and it is audited. Restoring a file back into
+      the site is equally possible and equally audited — that is the designed
+      answer to a signature false positive. Nothing in this flow ever
+      deletes anything automatically.
+    </p>
+
+    <h2>Not yet (honest list)</h2>
+    <ul>
+      <li>Scheduled scans — the cron engine is the job framework (B13); today
+        scans are on demand.</li>
+      <li>CRS exclusion UX is rule-id based; a curated "known false
+        positives" picker lands with the P5 hardening pass.</li>
+      <li>clamd (daemon) scanning is used when installed; a persistent
+        signature-database update job follows the B13 scheduler.</li>
+      <li>Per-reseller WAF templates are future work; posture is per-site
+        today.</li>
+    </ul>
+  </main>
+</div>
+</body>
+</html>

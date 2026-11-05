@@ -56,6 +56,8 @@ type Deps struct {
 	NftBinary            string // firewall.* nft path; empty = LookPath (tests inject a fake)
 	NftConfPath          string // firewall.* rendered conf path (/etc/nexuspanel/firewall.conf)
 	Fail2banClientBinary string // fail2ban.* client path; empty = LookPath (tests inject a fake)
+	ClamscanBinary       string // malware.* clamscan path; empty = LookPath clamscan|clamdscan
+	QuarantineRoot       string // malware.* quarantine root (/var/quarantine/nexuspanel)
 }
 
 // Registry maps method names to handlers.
@@ -203,6 +205,16 @@ func NewRegistry(deps Deps) *Registry {
 	r.m["fail2ban.jails"] = r.fail2banJails
 	r.m["fail2ban.unban"] = r.fail2banUnban
 
+	// waf.* + malware.* (ADR-0017 amendment to §4) — B12: per-site
+	// ModSecurity posture via nginx includes (health-gated, rollback on
+	// failed test) and ClamAV scans with a quarantine model: scan/list are
+	// read-mostly; delete/restore of quarantined artifacts are audited.
+	r.m["waf.apply_policy"] = r.wafApplyPolicy
+	r.m["malware.scan"] = r.malwareScan
+	r.m["malware.quarantine_list"] = r.malwareQuarantineList
+	r.m["malware.quarantine_delete"] = r.malwareQuarantineDelete
+	r.m["malware.quarantine_restore"] = r.malwareQuarantineRestore
+
 	// system.* (§4.15) — M0 subset
 	r.m["system.health"] = r.systemHealth
 	r.m["system.info"] = r.systemInfo
@@ -226,7 +238,8 @@ func (r *Registry) IsReadOnly(method string) bool {
 		"ssh.list_deployed", "ftp.list_accounts",
 		"dns.axfr_export", "dns.zone_check", "dns.get_dnssec",
 		"mail.queue_list", "database.size",
-		"firewall.status", "fail2ban.jails":
+		"firewall.status", "fail2ban.jails",
+		"malware.quarantine_list":
 		return true
 	}
 	return false

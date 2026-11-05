@@ -135,6 +135,9 @@ if (EMAIL && PASSWORD) {
 
   await go('/firewall', 900);
   await shot('21-firewall.png');
+
+  await go('/waf', 900);
+  await shot('23-waf.png');
   // With seeded rules + jails, the bans cards sit below the fold.
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await page.waitForTimeout(500);
