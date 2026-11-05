@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   SitesService,
   DomainDto,
+  DomainLogDto,
   SubdomainDto,
   AliasDto,
   RedirectDto,
@@ -159,6 +160,20 @@ export class SitesController {
     @CurrentUser() user: AuthContext,
   ): Promise<void> {
     await this.sites.deleteRedirect(id, redirectId, actorOf(user));
+  }
+
+  // ---------------------------------------------------------------- site logs
+
+  /** Tail of the site's access/error log (query: ?type=access|error&lines=N). */
+  @Get(':id/logs')
+  @RequirePermission('site:read')
+  async logs(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthContext,
+    @Query('type') type?: string,
+    @Query('lines') lines?: string,
+  ): Promise<DomainLogDto> {
+    return this.sites.logs(id, type, lines, actorOf(user));
   }
 }
 

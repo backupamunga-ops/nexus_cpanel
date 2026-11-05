@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { InMemoryAuditService } from '../audit/audit.service';
 import { SitesService, renderVhost, Actor } from './sites.service';
@@ -248,6 +248,12 @@ function harness(opts: { accessRows?: Array<{ user_id: string; hosting_account_i
       previous_existed: false,
     })),
     nginxRemoveVhost: jest.fn(async (_domain: string) => ({ status: 'removed', health_check: 'skipped' })),
+    filesystemRead: jest.fn(async (_username: string, path: string) => ({
+      path,
+      size_bytes: 0,
+      content_b64: '',
+      truncated: false,
+    })),
   };
 
   const svc = new SitesService(
@@ -290,9 +296,77 @@ describe('renderVhost', () => {
     expect(a).toBe(b);
     expect(a).toContain('server_name example.com www.example.com mirror.example.org;');
     expect(a).toContain('root /home/a/www;');
+    expect(a).toContain('access_log /home/a/logs/example.com.access.log;');
+    expect(a).toContain('error_log /home/a/logs/example.com.error.log;');
     expect(a).toContain('location = /old {');
     expect(a).toContain('location ^~ /promo {');
     expect(a).toContain('return 301 https://example.net/new;');
+  });
+
+  it('refuses docroots outside /home/<username>/ (log paths would be unconstrained)', () => {
+    expect(() => renderVhost('example.com', '/srv/www', [], [])).toThrow(BadRequestException);
+  });
+});
+
+describe('site logs', () => {
+  const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64');
+
+  function seedLogAgent(h: ReturnType<typeof harness>, content: string) {
+    h.agent.filesystemRead.mockResolvedValue({
+      path: '/home/alice/logs/example.com.access.log',
+      size_bytes: content.length,
+      content_b64: b64(content),
+      truncated: false,
+    });
+  }
+
+  it('tails the access log with line capping and reports the full size', async () => {
+    const h = harness();
+    const d = seedDomain(h);
+    const content = Array.from({ length: 350 }, (_, i) => `line ${i + 1}`).join('\n') + '\n';
+    seedLogAgent(h, content);
+    const out = await h.svc.logs(d.id, 'access', 100, SUPER);
+    expect(out.exists).toBe(true);
+    expect(out.total_lines).toBe(350);
+    expect(out.lines).toHaveLength(100);
+    expect(out.lines[0]).toBe('line 251');
+    expect(out.lines[99]).toBe('line 350');
+    expect(out.file).toBe('/home/alice/logs/example.com.access.log');
+    expect(h.agent.filesystemRead).toHaveBeenCalledWith('alice', '/home/alice/logs/example.com.access.log');
+  });
+
+  it('clamps lines into 10..1000 and defaults the kind to access', async () => {
+    const h = harness();
+    const d = seedDomain(h);
+    seedLogAgent(h, Array.from({ length: 2000 }, (_, i) => `l${i}`).join('\n'));
+    const out = await h.svc.logs(d.id, undefined, '99999', SUPER);
+    expect(out.kind).toBe('access');
+    expect(out.lines).toHaveLength(1000);
+  });
+
+  it('answers exists:false when the log file does not exist yet', async () => {
+    const h = harness();
+    const d = seedDomain(h);
+    h.agent.filesystemRead.mockRejectedValue(
+      new ServiceUnavailableException('agent rejected filesystem.read: path does not exist (-32602)'),
+    );
+    const out = await h.svc.logs(d.id, 'error', undefined, SUPER);
+    expect(out).toMatchObject({ exists: false, kind: 'error', total_lines: 0, lines: [] });
+    expect(out.file).toBe('/home/alice/logs/example.com.error.log');
+  });
+
+  it('propagates agent failures that are not "missing file"', async () => {
+    const h = harness();
+    const d = seedDomain(h);
+    h.agent.filesystemRead.mockRejectedValue(new ServiceUnavailableException('agent unreachable at /tmp/agent.sock'));
+    await expect(h.svc.logs(d.id, 'access', undefined, SUPER)).rejects.toThrow(ServiceUnavailableException);
+  });
+
+  it('404s for a domain the caller cannot see (C7 anti-enumeration)', async () => {
+    const h = harness();
+    const d = seedDomain(h);
+    await expect(h.svc.logs(d.id, 'access', undefined, VIEWER)).rejects.toThrow(NotFoundException);
+    expect(h.agent.filesystemRead).not.toHaveBeenCalled();
   });
 });
 

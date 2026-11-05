@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -196,9 +197,11 @@ export class SitesService {
       `domains/${name}/public_html`,
     );
 
-    // Agent first: docroot, then the vhost. Any failure leaves no row.
+    // Agent first: docroot, the logs dir (idempotent), then the vhost.
+    // Any failure leaves no row.
     try {
       await this.agent.filesystemMkdir(account.username, docroot, 0o755);
+      await this.agent.filesystemMkdir(account.username, logsDirForDocroot(docroot), 0o755);
       await this.agent.nginxApplyVhost(name, renderVhost(name, docroot, [], []));
     } catch (e) {
       await this.audit.append({
@@ -406,6 +409,8 @@ export class SitesService {
     const docroot = this.resolveDocroot(input.document_root, account.homedir, `subdomains/${label}`);
     try {
       await this.agent.filesystemMkdir(account.username, docroot, 0o755);
+      // Shared per-account logs dir — idempotent, created with the first site.
+      await this.agent.filesystemMkdir(account.username, logsDirForDocroot(docroot), 0o755);
       await this.agent.nginxApplyVhost(fqdn, renderVhost(fqdn, docroot, [], []));
     } catch (e) {
       await this.audit.append({
@@ -676,6 +681,69 @@ export class SitesService {
     });
   }
 
+  // ---------------------------------------------------------------- site logs
+
+  /**
+   * GET /domains/{id}/logs — tail of the site's access or error log (P3).
+   *
+   * nginx writes the logs inside the account's own home (renderVhost emits
+   * access_log/error_log under <homedir>/logs) and the tail is served
+   * through the agent's ADR-0008 filesystem.read op — the viewer inherits
+   * that path's confinement and the 10 MiB cap. A missing log file is an
+   * honest empty answer (exists:false), not an error: the file appears
+   * after the first request following a vhost (re)apply.
+   */
+  async logs(
+    id: string,
+    rawKind: unknown,
+    rawLines: unknown,
+    actor?: Actor,
+  ): Promise<DomainLogDto> {
+    const kind = rawKind === 'error' ? 'error' : 'access';
+    const requested = Number(rawLines);
+    const tail = Math.min(Math.max(Number.isFinite(requested) ? Math.trunc(requested) : 200, 10), 1000);
+
+    const domain = await this.requireVisibleDomain(id, actor);
+    const account = await this.requireAccount(domain.hosting_account_id);
+    const file = `${logsDirForDocroot(domain.document_root)}/${domain.name}.${kind}.log`;
+
+    let res: { size_bytes: number; content_b64: string; truncated: boolean };
+    try {
+      res = await this.agent.filesystemRead(account.username, file);
+    } catch (e) {
+      // The agent answers -32602 "path does not exist" for a log file that
+      // has not been created yet; the client surfaces it as a 503 carrying
+      // that message. An absent log is a state, not a failure.
+      if (e instanceof ServiceUnavailableException && /path does not exist/.test(e.message)) {
+        return {
+          domain_id: domain.id,
+          kind,
+          file,
+          exists: false,
+          file_size_bytes: 0,
+          file_truncated: false,
+          total_lines: 0,
+          lines: [],
+        };
+      }
+      throw e;
+    }
+
+    const text = Buffer.from(res.content_b64, 'base64').toString('utf8');
+    const all = text.split('\n');
+    if (all.length > 0 && all[all.length - 1] === '') all.pop();
+    return {
+      domain_id: domain.id,
+      kind,
+      file,
+      exists: true,
+      file_size_bytes: res.size_bytes,
+      file_truncated: res.truncated,
+      total_lines: all.length,
+      lines: all.slice(-tail),
+    };
+  }
+
   // ------------------------------------------------------------------ helpers
 
   /**
@@ -884,9 +952,27 @@ function validateRedirectInput(input: CreateRedirectInput): {
 }
 
 /**
+ * Log directory for a site (P3 site logs): <homedir>/logs. The agent's
+ * confineHomeDir pins every homedir to /home/<username>, so the log
+ * directory derives from the docroot's first two path components — no
+ * extra state, deterministic rendering. nginx writes each domain's
+ * access/error log there; the panel tails it via the ADR-0008
+ * filesystem.read op (zero new agent surface).
+ */
+export function logsDirForDocroot(docroot: string): string {
+  const m = /^\/home\/([a-z0-9][a-z0-9_-]{0,31})\//.exec(docroot);
+  if (!m) {
+    throw new BadRequestException('document_root must live under /home/<username>/');
+  }
+  return `/home/${m[1]}/logs`;
+}
+
+/**
  * Renders the nginx vhost. Deterministic and panel-owned: the same domain
  * state always renders the same bytes, which is what makes config_versions
- * history and drift detection meaningful.
+ * history and drift detection meaningful. Per-domain access/error logs are
+ * emitted into the account's logs/ directory so the viewer can read them
+ * through the confined filesystem.read path.
  */
 export function renderVhost(
   serverName: string,
@@ -897,6 +983,7 @@ export function renderVhost(
   >,
 ): string {
   const names = [serverName, `www.${serverName}`, ...aliases].join(' ');
+  const logsDir = logsDirForDocroot(docroot);
   const lines: string[] = [
     '# managed by nexuspanel — do not edit (drift is reported, not merged)',
     'server {',
@@ -904,6 +991,8 @@ export function renderVhost(
     `\tserver_name ${names};`,
     `\troot ${docroot};`,
     '\tindex index.html index.htm;',
+    `\taccess_log ${logsDir}/${serverName}.access.log;`,
+    `\terror_log ${logsDir}/${serverName}.error.log;`,
     '',
     '\tlocation / {',
     '\t\ttry_files $uri $uri/ =404;',
@@ -918,6 +1007,17 @@ export function renderVhost(
   }
   lines.push('}', '');
   return lines.join('\n');
+}
+
+export interface DomainLogDto {
+  domain_id: string;
+  kind: 'access' | 'error';
+  file: string;
+  exists: boolean;
+  file_size_bytes: number;
+  file_truncated: boolean;
+  total_lines: number;
+  lines: string[];
 }
 
 function toDomainDto(row: DomainRow): DomainDto {
