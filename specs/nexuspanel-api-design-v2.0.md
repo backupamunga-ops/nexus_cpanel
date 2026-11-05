@@ -471,6 +471,13 @@ The full endpoint catalog is large. Below is the **complete catalog** with metho
 | POST | `/backups/destinations` | jwt | `backup:create` |
 | DELETE | `/backups/destinations/{id}` | jwt | `backup:delete` |
 | POST | `/backups/destinations/{id}/test` | jwt | `backup:create` |
+| POST | `/backups/jobs/{id}/retention` | jwt | `backup:update` |
+
+Implementation increment (B10): `POST /backups/jobs/{id}/retention` runs the
+job's GFS retention pass on demand — the same pass that runs automatically
+after each successful backup. Destination configs are SecretBox envelopes:
+no route returns config material, and every test/restore/verify is audited
+with a fingerprint (ADR-0009/0015 discipline).
 
 ### 4.17 Applications — `/api/v1/apps`
 

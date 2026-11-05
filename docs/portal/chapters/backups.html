@@ -3,52 +3,161 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Backups & restore · NexusPanel Docs</title>
+  <title>Backups &amp; restore · NexusPanel Docs</title>
   <link rel="stylesheet" href="../assets/style.css">
 </head>
 <body>
 <div class="portal">
   <aside>
     <div class="brand">NexusPanel Docs</div>
-    <div class="tag">v0.1.0-m0 · preview</div>
-    <div class="group">Start here</div>
-    <nav>
-      <a href="getting-started.html">Getting started</a>
-      <a href="first-account.html">Your first hosting account</a>
-    </nav>
+    <div class="tag">v0.4.0 · P4</div>
     <div class="group">Admin guide</div>
     <nav>
-      <a href="accounts.html">Accounts & packages</a>
-      <a href="audit.html">Audit log & chain</a>
+      <a href="accounts.html">Accounts &amp; packages</a>
+      <a href="sites.html">Sites &amp; domains</a>
+      <a href="files.html">Files, FTP &amp; SSH</a>
+      <a href="dns.html">DNS zones</a>
+      <a href="email.html">Email</a>
+      <a href="databases.html">Databases</a>
+      <a class="active" href="backups.html">Backups &amp; restore</a>
+      <a href="ssl.html">SSL certificates</a>
     </nav>
     <div class="back"><a href="../index.html">← Documentation home</a></div>
   </aside>
   <main>
-    <h1>Backups & restore</h1>
+    <h1>Backups &amp; restore</h1>
     <p class="lede">
-      This chapter opens with its build phase. The scope below is committed in
-      the master specification; nothing here is live in the M0 preview.
+      Every backup is an artifact: a gzipped tar of the account home, the site
+      subtree or a database dump, plus a JSON manifest carrying its checksum.
+      Artifacts can be encrypted with <strong>age</strong> before they leave
+      the node (security control C15) and can land on a local directory, an
+      S3-compatible bucket or an SFTP server. The restore flow always shows
+      you what is inside an artifact before it touches anything.
     </p>
 
-    <p><span class="badge">planned for P4</span></p>
+    <img class="screenshot" src="../static/screenshots/p4/19-backups.png"
+         alt="Backups panel: destinations, jobs with the honest schedule badge, and the run journal">
 
-    <h2>Planned scope</h2>
+    <h2>Destinations <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Open <strong>Backups</strong> and add a destination: <em>local</em>
+      (a directory under the agent's backup root), <em>S3-compatible</em>
+      (any bucket speaking the S3 API — uploads run through
+      <code>rclone</code>), or <em>SFTP</em> (batch-mode OpenSSH client with
+      a pinned host key when you provide one). Press <strong>Test</strong>
+      to prove the destination with a real round trip (upload → download →
+      checksum → clean up) before pointing jobs at it.
+    </p>
+    <p>
+      The config you type — bucket keys, the SFTP private key — is stored as
+      an <strong>AES-256-GCM envelope</strong> (SecretBox, ADR-0009). The
+      panel never shows it back: it is decrypted only at the moment an agent
+      call needs it, and the audit trail carries a fingerprint, never the
+      material. Secrets ride to the node through the signed command channel
+      once and live in the child process environment or a 0600 temp key file
+      — never in argv, logs, or the agent's write-ahead log.
+    </p>
+
+    <h2>Encryption (C15) <span class="badge ok">age, master-key protected</span></h2>
     <ul>
-      <li>Destinations: local, S3-compatible, SFTP</li>
-      <li>Schedules with checksum + verify</li>
-      <li>Restore preview; age encryption (master-key protected)</li>
+      <li>Destination config accepts <strong>age recipients</strong> (public
+        keys). Any destination with recipients produces
+        <code>.tar.gz.age</code> artifacts — encrypted on the node, before
+        upload.</li>
+      <li>Decrypting requires the <strong>age identity file</strong> (the
+        master key) configured on the node performing the restore. It is a
+        node-local file — it never crosses the API or the command channel.</li>
+      <li>The negative path is part of the design: an encrypted artifact on
+        a node without its identity <strong>fails loudly</strong> — restore
+        and verify report a precondition error, they never silently skip
+        encryption. A wrong master key fails the same way.</li>
+      <li>A destination without recipients stores plaintext artifacts; runs
+        carried on it are flagged honestly in the UI and docs.</li>
     </ul>
 
-    <div class="callout">
-      Docs ship together with the feature (Definition of Done, BUILD_PLAN §1) —
-      when backups & restore goes live, this page gets full procedures and
-      regenerated screenshots in the same merge.
-    </div>
+    <h2>Jobs &amp; schedules <span class="badge ok">live</span> <span class="badge">schedules fire with B13</span></h2>
+    <p>
+      A job binds a <strong>scope</strong> to a destination: a whole account
+      home, a site subtree, a MariaDB database (the agent dumps it first,
+      ADR-0001 engines only in v1.0), or the agent's own managed server
+      config. Every job carries a retention policy —
+      <strong>grandfather-father-son</strong>: N daily, N weekly and N
+      monthly restore points survive outside the plain
+      <code>retention_days</code> window.
+    </p>
+    <p>
+      The cron schedule is stored and validated, but the engine that fires
+      schedules lands with the job framework (B13) — the badge on every job
+      says so, and <strong>Run now</strong> is the live path today. Stated,
+      not hidden.
+    </p>
 
-    <div class="pager">
-      <a href="../index.html">← Documentation home</a>
-      <a href="audit.html">Audit log &amp; chain →</a>
-    </div>
+    <h2>Runs: the honest journal <span class="badge ok">live</span></h2>
+    <p>
+      Every attempt becomes a run row before the agent is called, and it
+      tells the truth about what happened: <code>running</code> →
+      <code>success</code> or <code>failed</code> (with the agent's error
+      message verbatim). A successful run records the artifact name, its
+      size and the SHA-256 over the final (post-encryption) bytes.
+    </p>
+    <img class="screenshot" src="../static/screenshots/p4/20-backups-runs.png"
+         alt="Run journal: verified in green, success-not-verified-yet in amber, failed with the real error">
+    <p>
+      <strong>The verified badge is earned, never inferred.</strong> It
+      appears only after a real proof:
+    </p>
+    <ul>
+      <li><strong>Verify</strong> — re-hashes the artifact at the
+        destination against the recorded checksum and, for encrypted
+        artifacts, actually decrypts it with the node's master key. Bit-rot
+        and key loss both fail here.</li>
+      <li><strong>Test-restore</strong> (dry-run restore) — fetches,
+        decrypts, checksums and extracts the whole artifact into a scratch
+        area. Nothing is written back.</li>
+    </ul>
+    <p>
+      A plain successful backup shows amber
+      <em>success — not verified yet</em> until one of those proofs runs.
+    </p>
+
+    <h2>Restore &lt;- with preview <span class="badge ok">live</span></h2>
+    <p>
+      <strong>Preview</strong> lists the manifest and the sanitized entry
+      listing (first page) before anything is extracted — including whether
+      the checksum matches the manifest. Restore then behaves by scope:
+      account/site artifacts are extracted <em>inside the owning account's
+      home</em> (never over system paths — C13 confinement); a database
+      artifact's dump is additionally re-imported into the database through
+      the same confined path the dump tool uses. Restore refuses artifacts
+      whose bytes do not match their manifest checksum, and skips symlinks,
+      devices and path escapes with a count instead of following them.
+    </p>
+
+    <h2>Retention <span class="badge ok">live</span></h2>
+    <p>
+      After every successful run the panel applies the job's GFS policy over
+      its run registry: everything inside <code>retention_days</code> stays,
+      plus the newest N daily / N weekly (Mondays) / N monthly (1st)
+      restore points; the rest is purged at the destination. As a second
+      seatbelt, the agent protects any artifact whose own manifest claims a
+      newer date than the purge cutoff — the registry decides, the manifest
+      vetoes.
+    </p>
+
+    <h2>Not yet (honest list)</h2>
+    <ul>
+      <li>Schedule firing — the cron engine is the job framework (B13);
+        today schedules are stored and <em>Run now</em> is the live path.</li>
+      <li>Account-holder self-service restore ("my backups") — backups are
+        admin-managed in B10; the account-holder guide lands later.</li>
+      <li>SFTP purge — retention currently purges local and S3
+        (rclone) destinations; SFTP-destination purge is planned.</li>
+      <li>Age identity provisioning UX — the master key file is provisioned
+        by the installer today; a rotation flow follows the master-key
+        rotation runbook work.</li>
+      <li>Full-node bare-metal restore — v1.0 restores per-scope artifacts;
+        a whole-node rebuild path is future work.</li>
+    </ul>
   </main>
 </div>
 </body>

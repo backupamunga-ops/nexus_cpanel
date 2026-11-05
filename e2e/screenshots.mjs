@@ -125,6 +125,14 @@ if (EMAIL && PASSWORD) {
     await shot('11-databases-detail.png');
   }
 
+  await go('/backups', 900);
+  await shot('19-backups.png');
+  // The backups panel is one long page: destinations, jobs, runs. The
+  // second shot shows the jobs + runs tables with the honest badges.
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.waitForTimeout(700);
+  await shot('20-backups-runs.png');
+
   await go('/accounts', 900);
   await shot('12-accounts-detail.png');
 

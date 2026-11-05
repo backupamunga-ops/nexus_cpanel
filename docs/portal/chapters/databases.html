@@ -19,6 +19,7 @@
       <a href="dns.html">DNS zones</a>
       <a href="email.html">Email</a>
       <a class="active" href="databases.html">Databases</a>
+      <a href="backups.html">Backups &amp; restore</a>
       <a href="ssl.html">SSL certificates</a>
     </nav>
     <div class="back"><a href="../index.html">← Documentation home</a></div>
@@ -97,8 +98,10 @@
     <h2>Not yet (honest list)</h2>
     <ul>
       <li>MySQL 8 / PostgreSQL engines — v1.2 behind the adapter seam (ADR-0001).</li>
-      <li>Scheduled dumps — arrive with the backup framework (B10); today's
-        dump is an on-demand operator tool.</li>
+      <li>One-click "back up this database now" lives in the Backups panel
+        (B10): create a database-scoped job and press Run now; the agent
+        dumps MariaDB and ships the encrypted artifact. The dump button here
+        stays an on-demand operator tool.</li>
       <li>phpMyAdmin/Adminer consumer for the SSO token — B14 app installer.</li>
       <li>Over-quota enforcement responses — B13 job framework.</li>
     </ul>
