@@ -46,6 +46,8 @@ type Deps struct {
         OpendkimTableDir  string       // managed KeyTable/SigningTable dir; overridable in tests
         PostqueueBinary   string       // postqueue path; empty = exec.LookPath (tests inject a fake)
         PostsuperBinary   string       // postsuper path; empty = exec.LookPath (tests inject a fake)
+        MysqlClientBinary string       // database.* client binary; empty = LookPath mariadb|mysql
+        MysqlDumpBinary   string       // mariadb-dump path; empty = LookPath mariadb-dump|mysqldump
 }
 
 // Registry maps method names to handlers.
@@ -163,6 +165,14 @@ func NewRegistry(deps Deps) *Registry {
         r.m["mail.queue_flush"] = r.mailQueueFlush
         r.m["mail.queue_retry"] = r.mailQueueRetry
 
+        // database.* (§4.10, amended by ADR-0015 with database.size) — P4:
+        // MariaDB-only via the DatabaseEngineAdapter seam; unix-socket admin.
+        r.m["database.create"] = r.databaseCreate
+        r.m["database.delete"] = r.databaseDelete
+        r.m["database.size"] = r.databaseSize
+        r.m["database.dump"] = r.databaseDump
+        r.m["database.restore"] = r.databaseRestore
+
         // system.* (§4.15) — M0 subset
         r.m["system.health"] = r.systemHealth
         r.m["system.info"] = r.systemInfo
@@ -185,7 +195,7 @@ func (r *Registry) IsReadOnly(method string) bool {
                 "filesystem.list", "filesystem.read", "filesystem.usage",
                 "ssh.list_deployed", "ftp.list_accounts",
                 "dns.axfr_export", "dns.zone_check", "dns.get_dnssec",
-                "mail.queue_list":
+                "mail.queue_list", "database.size":
                 return true
         }
         return false
