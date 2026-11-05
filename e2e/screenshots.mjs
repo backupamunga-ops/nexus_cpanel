@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 /**
- * Playwright screenshot rig (WS6, gaps G-07/G-08).
+ * Playwright screenshot rig (WS6, gaps G-07/G-08) — extended at P4.
  *
  * Walks the seeded demo environment and captures the doc screenshots into
- * docs/portal/static/screenshots/m0/. Deterministic output: fixed viewport,
- * fixed waits, real login via DEV_ADMIN_EMAIL / DEV_ADMIN_PASSWORD env.
+ * docs/portal/static/screenshots/<set>/. Deterministic output: fixed
+ * viewport, fixed waits, real login via DEV_ADMIN_EMAIL / DEV_ADMIN_PASSWORD.
  *
  * Prerequisites (see e2e/README.md):
- *   1. PostgreSQL + agent + control plane running (docker compose up / dev)
- *   2. Web app:  npm run dev --workspace apps/web   (port 5173)
- *   3. npx playwright install chromium
+ *   1. PostgreSQL (or the embedded PGlite wire server) + agent + control plane
+ *   2. Web app:  npm run start --workspace apps/web   (port 5173)
+ *   3. Demo data: scripts/scratch/seed-demo.mjs (agent-less rigs) or real
+ *      provisioning on a root dev VM
+ *   4. npx playwright install chromium
  *
  * Usage: DEV_ADMIN_EMAIL=… DEV_ADMIN_PASSWORD=… node e2e/screenshots.mjs
  * Credentials are read from the environment — never hard-coded (G-23/G-24).
@@ -20,7 +22,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const OUT = join(ROOT, 'docs', 'portal', 'static', 'screenshots', 'm0');
+const SET = process.env.SHOT_SET || 'p4';
+const OUT = join(ROOT, 'docs', 'portal', 'static', 'screenshots', SET);
 const WEB = process.env.WEB_BASE_URL || 'http://localhost:5173';
 const EMAIL = process.env.DEV_ADMIN_EMAIL;
 const PASSWORD = process.env.DEV_ADMIN_PASSWORD;
@@ -35,11 +38,51 @@ async function shot(name) {
   console.log('📸', name);
 }
 
+async function go(path, settle = 700) {
+  await page.goto(`${WEB}${path}`, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(settle);
+}
+
+// Every hosting-scoped panel defaults to the first account in the list;
+// the demo data lives on `alpha`. Pick it in the first account dropdown
+// that carries the option, then let the page reload its data.
+async function pickAccount(username = 'alpha') {  const selects = page.locator('select');
+  const n = await selects.count();
+  for (let i = 0; i < n; i++) {
+    const sel = selects.nth(i);
+    if (!(await sel.isVisible().catch(() => false))) continue;
+    const options = sel.locator('option');
+    const on = await options.count();
+    for (let j = 0; j < on; j++) {
+      if ((await options.nth(j).textContent())?.trim() === username) {
+        const value = await options.nth(j).getAttribute('value');
+        if (value && (await sel.inputValue()) !== value) {
+          await sel.selectOption(value);
+          await page.waitForTimeout(900);
+        }
+        return;
+      }
+    }
+  }
+}
+
+// Wait briefly for a table's Open button, click the first one, settle.
+async function tryClickOpen() {
+  try {
+    await page.locator('button:has-text("Open")').first().waitFor({ state: 'visible', timeout: 4000 });
+    await page.locator('button:has-text("Open")').first().click();
+    await page.waitForTimeout(1100);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // 1 — login screen (logged-out state)
 await page.goto(`${WEB}/login`, { waitUntil: 'networkidle' });
 await shot('01-login.png');
 
-// 2 — accounts screen with live usage (requires real credentials)
+// 2+ — authenticated walkthrough (requires real credentials)
 if (EMAIL && PASSWORD) {
   await page.fill('#email', EMAIL);
   await page.fill('#password', PASSWORD);
@@ -48,13 +91,63 @@ if (EMAIL && PASSWORD) {
   await page.waitForLoadState('networkidle');
   await page.waitForTimeout(1200); // first WS usage push
   await shot('02-accounts.png');
+
+  await go('/', 900);
+  await shot('03-dashboard.png');
+
+  await go('/sites', 900);
+  await pickAccount();
+  await shot('04-sites.png');
+
+  await go('/files', 900);
+  await pickAccount();
+  await shot('05-files.png');
+
+  await go('/dns', 900);
+  await pickAccount();
+  await shot('06-dns.png');
+  // Open the alpha.demo zone editor when present.
+  if (await tryClickOpen()) {
+    await shot('07-dns-zone-editor.png');
+  }
+
+  await go('/mail', 900);
+  await pickAccount();
+  await shot('08-email.png');
+  if (await tryClickOpen()) {
+    await shot('09-email-domain.png');
+  }
+
+  await go('/databases', 900);
+  await pickAccount();
+  await shot('10-databases.png');
+  if (await tryClickOpen()) {
+    await shot('11-databases-detail.png');
+  }
+
+  await go('/accounts', 900);
+  await shot('12-accounts-detail.png');
+
+  await go('/packages', 900);
+  await shot('13-packages.png');
+
+  await go('/resellers', 900);
+  await shot('14-resellers.png');
+
+  await go('/server-settings', 900);
+  await shot('15-server-settings.png');
+
+  await go('/settings', 900);
+  await shot('16-security.png');
+
+  await go('/tokens', 900);
+  await shot('17-tokens.png');
+
+  await go('/sessions', 900);
+  await shot('18-sessions.png');
 } else {
   console.log('⚠  DEV_ADMIN_EMAIL/PASSWORD not set — skipping authenticated shots');
 }
-
-// 3 — audit trail chapter (static docs page)
-await page.goto(`${WEB}/login`, { waitUntil: 'networkidle' });
-await shot('03-audit.png');
 
 await browser.close();
 console.log(`done → ${OUT}`);
