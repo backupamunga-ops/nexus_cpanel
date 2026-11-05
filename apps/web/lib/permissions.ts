@@ -35,4 +35,6 @@ export const WEB_KNOWN_PERMISSIONS: readonly string[] = [
   'reseller:list',
   'reseller:read',
   'reseller:update',
+  'settings:read',
+  'settings:write',
 ];
