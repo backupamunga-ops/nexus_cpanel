@@ -35,6 +35,8 @@ export interface SessionUser {
   email: string;
   display_name: string;
   is_super_admin: boolean;
+  /** Mirror of users.totp_enabled_at (additive P2 field). */
+  two_factor_enabled: boolean;
 }
 
 function deviceFingerprint(): string {
@@ -70,6 +72,19 @@ export function clearSession(): void {
   localStorage.removeItem('nexuspanel.refresh');
 }
 
+/**
+ * Patches the stored user snapshot (e.g. after enabling/disabling 2FA).
+ * The snapshot is a cache; the authoritative state returns with the next
+ * login or refresh.
+ */
+export function patchStoredUser(patch: Partial<SessionUser>): SessionUser | null {
+  const current = getUser();
+  if (!current) return null;
+  const next = { ...current, ...patch };
+  localStorage.setItem(USER_KEY, JSON.stringify(next));
+  return next;
+}
+
 export async function login(email: string, password: string, totp?: string): Promise<SessionUser> {
   const res = await fetch(`${BASE}/auth/login`, {
     method: 'POST',
@@ -87,7 +102,10 @@ export async function login(email: string, password: string, totp?: string): Pro
     }
     throw new Error(body?.detail ?? 'Login failed.');
   }
-  store(body.access_token, body.user);
+  store(body.access_token, {
+    ...body.user,
+    two_factor_enabled: body.user?.two_factor_enabled ?? false,
+  });
   return body.user as SessionUser;
 }
 
@@ -113,7 +131,10 @@ async function refreshSession(): Promise<boolean> {
         return false;
       }
       const body = await res.json();
-      store(body.access_token, body.user);
+      store(body.access_token, {
+        ...body.user,
+        two_factor_enabled: body.user?.two_factor_enabled ?? false,
+      });
       return true;
     } catch {
       return false;

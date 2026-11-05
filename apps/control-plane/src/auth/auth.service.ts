@@ -106,7 +106,14 @@ export interface TokenPairResponse {
   refresh_token: string;
   token_type: 'jwt';
   expires_in: number;
-  user: { id: string; email: string; display_name: string; is_super_admin: boolean };
+  user: {
+    id: string;
+    email: string;
+    display_name: string;
+    is_super_admin: boolean;
+    /** Additive P2 field: lets the UI render the 2FA settings state. */
+    two_factor_enabled: boolean;
+  };
 }
 
 /** One row of GET /auth/sessions (never exposes the token material itself). */
@@ -400,7 +407,13 @@ export class AuthService implements OnModuleInit {
   }
 
   private tokenPair(
-    user: { id: string; email: string; display_name: string; is_super_admin: boolean },
+    user: {
+      id: string;
+      email: string;
+      display_name: string;
+      is_super_admin: boolean;
+      totp_enabled_at?: Date | null;
+    },
     refreshToken: string,
     sessionId: string,
     ctx: LoginContext,
@@ -419,6 +432,7 @@ export class AuthService implements OnModuleInit {
         email: user.email,
         display_name: user.display_name,
         is_super_admin: user.is_super_admin,
+        two_factor_enabled: !!user.totp_enabled_at,
       },
     };
   }
