@@ -25,6 +25,9 @@ export const WEB_KNOWN_PERMISSIONS: readonly string[] = [
   'auth:logout',
   'auth:sessions',
   'auth:tokens',
+  'file:delete',
+  'file:read',
+  'file:write',
   'package:create',
   'package:delete',
   'package:list',
@@ -42,4 +45,6 @@ export const WEB_KNOWN_PERMISSIONS: readonly string[] = [
   'site:list',
   'site:read',
   'site:update',
+  'ssh:manage',
+  'ssh:read',
 ];
