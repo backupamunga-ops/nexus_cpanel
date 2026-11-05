@@ -4,6 +4,7 @@ import { AuthModule } from './auth/auth.module';
 import { AccountsModule } from './accounts/accounts.module';
 import { PackagesModule } from './packages/packages.module';
 import { ResellersModule } from './resellers/resellers.module';
+import { SettingsModule } from './settings/settings.module';
 import { AgentModule } from './agent/agent.module';
 import { AuditModule } from './audit/audit.module';
 import { EventsModule } from './events/events.module';
@@ -18,6 +19,7 @@ import { PrismaModule } from './prisma/prisma.module';
     AccountsModule,
     PackagesModule,
     ResellersModule,
+    SettingsModule,
     AgentModule,
     AuditModule,
     EventsModule,

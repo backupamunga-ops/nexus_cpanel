@@ -743,3 +743,19 @@ CREATE TABLE extension_registrations (
   last_heartbeat_at   timestamptz,
   is_active           boolean NOT NULL DEFAULT true
 );
+
+-- ============================================================================
+-- SERVER SETTINGS (P2) — admin-editable platform configuration
+-- ============================================================================
+-- Keys are NOT open-ended: the settings module owns a whitelist of typed
+-- definitions (category, type, bounds, default); unknown keys are rejected
+-- fail-closed so a typo'd key can never silently enforce nothing. Values are
+-- non-secret configuration only — secrets live in env/secret files, never
+-- here. Every change is hash-chained into audit_entries (C11) by the service.
+
+CREATE TABLE system_settings (
+  key           text PRIMARY KEY,            -- whitelist key, e.g. 'security.lockout_minutes'
+  value         jsonb NOT NULL,              -- typed scalar (string | integer | boolean)
+  updated_by    uuid REFERENCES users(id) ON DELETE SET NULL,
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);

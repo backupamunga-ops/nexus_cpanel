@@ -48,6 +48,7 @@ model User {
   notifications__user_id  Notification[]  @relation("notifications.user_id")
   migration_jobs__initiated_by_user_id  MigrationJob[]  @relation("migration_jobs.initiated_by_user_id")
   extensions__installed_by_user_id  Extension[]   @relation("extensions.installed_by_user_id")
+  system_settings__updated_by  SystemSetting[]  @relation("system_settings.updated_by")
   @@map("users")
 }
 
@@ -809,4 +810,13 @@ model ExtensionRegistration {
   is_active         Boolean       @default(true)
   extension         Extension     @relation("extension_registrations.extension_id", fields: [extension_id], references: [id], onDelete: Cascade)
   @@map("extension_registrations")
+}
+
+model SystemSetting {
+  key               String        @id
+  value             Json
+  updated_by        String?       @db.Uuid
+  updated_at        DateTime      @default(now()) @db.Timestamptz(6)
+  updated_by_users  User?         @relation("system_settings.updated_by", fields: [updated_by], references: [id], onDelete: SetNull)
+  @@map("system_settings")
 }
