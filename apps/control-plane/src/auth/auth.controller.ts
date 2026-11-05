@@ -49,7 +49,9 @@ import { AuthContext, AuthenticatedRequest, CurrentUser } from './request-contex
  *     matches a cookie-era session is simply a stale client retry.
  *
  * Request metadata (ip / user-agent / device fingerprint) is captured for
- * session binding — C3 binds refresh tokens to the device fingerprint.
+ * session binding — C3 binds refresh tokens to the device fingerprint, and
+ * C14 (session-host.ts) binds the session to the request Host so a session
+ * minted on one reseller's branded domain cannot refresh from another.
  *
  * @Public() is METHOD-level here: login and refresh are unauthenticated by
  * design, but logout must authenticate (it revokes the presenting session).
@@ -204,6 +206,7 @@ export class AuthController {
       userAgent: header('user-agent'),
       deviceFingerprint: body.device_fingerprint ?? header('x-device-fingerprint'),
       totp: body.totp,
+      host: header('host') ?? null,
     };
   }
 }

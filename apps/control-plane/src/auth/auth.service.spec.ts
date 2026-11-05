@@ -116,6 +116,9 @@ interface PrismaMock {
     findMany: jest.Mock;
     updateMany: jest.Mock;
   };
+  reseller: {
+    findMany: jest.Mock;
+  };
 }
 
 async function makeAuth(user: object | null) {
@@ -128,6 +131,9 @@ async function makeAuth(user: object | null) {
       findMany: jest.fn().mockResolvedValue([]),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
+    // C14: active reseller custom domains; empty by default = no branded
+    // origins, every host is panel-kind (the C3 suites' behavior).
+    reseller: { findMany: jest.fn().mockResolvedValue([]) },
   };
   const audit = new InMemoryAuditService();
   const jwt = new JwtService('unit-test-secret-0123456789abcdefghijklmnop');
@@ -423,5 +429,125 @@ describe('AuthService (C3 session inventory)', () => {
     await expect(auth.revokeSession(USER_ID, 'nope')).rejects.toThrow(NotFoundException); // same shape every time
     // Nothing happened → nothing was audited (no enumeration breadcrumbs).
     expect(audit.list().some((e) => e.operation === 'auth.session.revoke')).toBe(false);
+  });
+});
+
+/* ─────────────── C14 — cross-reseller session isolation ─────────────── */
+
+describe('AuthService (C14 session host binding)', () => {
+  const ORIGINAL_ENV = { ...process.env };
+  let passwordHash: string;
+
+  beforeAll(async () => {
+    passwordHash = await new PasswordService().hash(PASSWORD);
+  });
+
+  beforeEach(() => {
+    delete process.env.DEV_ADMIN_EMAIL;
+    delete process.env.DEV_ADMIN_PASSWORD;
+  });
+
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  it('login binds the session to the normalized request Host (port stripped)', async () => {
+    const { auth, prisma } = await makeAuth(fakeUser({ password_hash: passwordHash }));
+    await auth.login(EMAIL, PASSWORD, { host: 'Panel.BrandCo.COM:8443' });
+    expect(prisma.userSession.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ bound_host: 'panel.brandco.com' }),
+    });
+  });
+
+  it('a session minted on reseller A\'s domain refreshes from A but NOT from reseller B\'s domain', async () => {
+    const user = fakeUser({ password_hash: passwordHash });
+    const { auth, prisma, audit } = await makeAuth(user);
+    const first = await auth.login(EMAIL, PASSWORD, { host: 'panel.brand-a.com' });
+
+    prisma.userSession.findUnique.mockResolvedValue(
+      fakeSession(first.refresh_token, user, { bound_host: 'panel.brand-a.com' }),
+    );
+    // Active custom domains: two resellers' branded origins.
+    prisma.reseller.findMany.mockResolvedValue([
+      { custom_domain: 'panel.brand-a.com' },
+      { custom_domain: 'panel.brand-b.com' },
+    ]);
+
+    // Same branded origin → refresh succeeds and rotates.
+    const second = await auth.refresh(first.refresh_token, { host: 'panel.brand-a.com' });
+    expect(second.access_token).toBeDefined();
+
+    // The rotated token presented from reseller B's domain → uniform 401,
+    // session revoked, audited — the ADR-0003 C14 exit criterion.
+    prisma.userSession.findUnique.mockResolvedValue(
+      fakeSession(second.refresh_token, user, { bound_host: 'panel.brand-a.com' }),
+    );
+    await expect(auth.refresh(second.refresh_token, { host: 'panel.brand-b.com' })).rejects.toThrow(
+      UnauthorizedException,
+    );
+    expect(prisma.userSession.update).toHaveBeenCalledWith({
+      where: { id: SESSION_ID },
+      data: { revoked_at: expect.any(Date) },
+    });
+    expect(audit.list().some((e) => e.operation === 'auth.refresh' && (e.parameters as Record<string, unknown>)?.['reason'] === 'host_crossing')).toBe(true);
+  });
+
+  it('branded-origin sessions cannot float back to the canonical panel host', async () => {
+    const user = fakeUser({ password_hash: passwordHash });
+    const { auth, prisma } = await makeAuth(user);
+    const first = await auth.login(EMAIL, PASSWORD, { host: 'panel.brand-a.com' });
+
+    prisma.userSession.findUnique.mockResolvedValue(
+      fakeSession(first.refresh_token, user, { bound_host: 'panel.brand-a.com' }),
+    );
+    prisma.reseller.findMany.mockResolvedValue([{ custom_domain: 'panel.brand-a.com' }]);
+
+    await expect(auth.refresh(first.refresh_token, { host: 'panel.nexuspanel.dev' })).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
+
+  it('canonical sessions cannot be replayed onto a branded origin', async () => {
+    const user = fakeUser({ password_hash: passwordHash });
+    const { auth, prisma } = await makeAuth(user);
+    const first = await auth.login(EMAIL, PASSWORD, { host: 'panel.nexuspanel.dev' });
+
+    prisma.userSession.findUnique.mockResolvedValue(
+      fakeSession(first.refresh_token, user, { bound_host: 'panel.nexuspanel.dev' }),
+    );
+    prisma.reseller.findMany.mockResolvedValue([{ custom_domain: 'panel.brand-a.com' }]);
+
+    await expect(auth.refresh(first.refresh_token, { host: 'panel.brand-a.com' })).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
+
+  it('panel-kind hosts interoperate freely (ports and aliases stripped)', async () => {
+    const user = fakeUser({ password_hash: passwordHash });
+    const { auth, prisma } = await makeAuth(user);
+    const first = await auth.login(EMAIL, PASSWORD, { host: 'localhost:3000' });
+
+    prisma.userSession.findUnique.mockResolvedValue(
+      fakeSession(first.refresh_token, user, { bound_host: 'localhost' }),
+    );
+    // No active custom domains at all → every host is panel-kind.
+    const second = await auth.refresh(first.refresh_token, { host: '127.0.0.1:9200' });
+    expect(second.refresh_token).not.toBe(first.refresh_token);
+  });
+
+  it('pending domains do not participate in enforcement (no lockout before activation)', async () => {
+    const user = fakeUser({ password_hash: passwordHash });
+    const { auth, prisma } = await makeAuth(user);
+    const first = await auth.login(EMAIL, PASSWORD, { host: 'panel.brand-a.com' });
+
+    prisma.userSession.findUnique.mockResolvedValue(
+      fakeSession(first.refresh_token, user, { bound_host: 'panel.brand-a.com' }),
+    );
+    // The domain is registered but still 'pending' → the active-domain query
+    // (custom_domain_status: 'active') returns nothing.
+    prisma.reseller.findMany.mockResolvedValue([]);
+
+    const second = await auth.refresh(first.refresh_token, { host: 'localhost:3000' });
+    expect(second.access_token).toBeDefined();
   });
 });

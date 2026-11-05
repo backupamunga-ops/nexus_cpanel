@@ -10,6 +10,7 @@ import { AuditAppender, InjectAudit } from '../audit/audit.service';
 import { JwtService } from './jwt.service';
 import { TwoFactorService } from './two-factor.service';
 import { hashRefreshToken, mintRefreshToken, refreshSessionId } from './refresh-token';
+import { assertSessionHostAllowed, normalizeHost } from './session-host';
 import * as crypto from 'node:crypto';
 import { isIP } from 'node:net';
 
@@ -85,6 +86,9 @@ function timingSafeEqual(a: Buffer, b: Buffer): boolean {
  * - Access tokens: 15-minute JWT (sid-bound for revocation).
  * - Refresh tokens: 7-day, rotating, device-fingerprint-bound, stored only as
  *   SHA-256. Reuse of a rotated token revokes EVERY session of the user (C3).
+ * - Session host binding (C14): the session records the Host it was created
+ *   on; refresh re-classifies the presenting Host against active reseller
+ *   custom domains and refuses cross-domain replay (session-host.ts).
  * - Lockout: `failed_login_count` ≥ 5 ⇒ `locked_until` = now + 15 min.
  * - Unknown-email logins burn a real Argon2id verify against a decoy hash so
  *   response timing does not leak account existence (no user oracle).
@@ -99,6 +103,8 @@ export interface LoginContext {
   userAgent?: string | null;
   deviceFingerprint?: string | null;
   totp?: string;
+  /** Raw Host header, bound to the session at creation (C14). */
+  host?: string | null;
 }
 
 export interface TokenPairResponse {
@@ -122,6 +128,8 @@ export interface SessionView {
   ip: string | null;
   user_agent: string | null;
   device_fingerprint: string | null;
+  /** Host this session was created on (C14 binding; null = legacy row). */
+  bound_host: string | null;
   created_at: Date;
   last_used_at: Date;
   expires_at: Date;
@@ -280,6 +288,7 @@ export class AuthService implements OnModuleInit {
         device_fingerprint: ctx.deviceFingerprint ?? null,
         ip: sanitizeIp(ctx.ip),
         user_agent: ctx.userAgent ?? null,
+        bound_host: normalizeHost(ctx.host),
         expires_at: addDays(REFRESH_TTL_DAYS),
       },
     });
@@ -338,6 +347,39 @@ export class AuthService implements OnModuleInit {
       throw new UnauthorizedException('invalid refresh token');
     }
 
+    // C14 — cross-reseller host gate. The token hash matched, so this IS the
+    // session's secret; a presentation from the wrong origin is either token
+    // theft or a Host-rewriting proxy. Same posture as fingerprint mismatch:
+    // revoke the session and demand re-authentication. Domains still pending
+    // (no active custom_domain row) do not participate — classification only
+    // sees ACTIVE reseller domains.
+    const requestHost = normalizeHost(ctx.host);
+    if (session.bound_host || requestHost) {
+      const activeDomains = await this.prisma.reseller.findMany({
+        where: { deleted_at: null, custom_domain_status: 'active' },
+        select: { custom_domain: true },
+      });
+      const domains = activeDomains
+        .map((r) => normalizeHost(r.custom_domain))
+        .filter((d): d is string => typeof d === 'string');
+      try {
+        assertSessionHostAllowed(session.bound_host, requestHost, domains);
+      } catch (e) {
+        await this.prisma.userSession.update({
+          where: { id: session.id },
+          data: { revoked_at: new Date() },
+        });
+        await this.audit.append({
+          operation: 'auth.refresh',
+          parameters: { session_id: session.id, reason: 'host_crossing', bound_host: session.bound_host, request_host: requestHost },
+          outcome: 'failure',
+          actorUserId: session.user_id,
+        });
+        this.logger.warn(`refresh host-crossing rejected (session ${session.id}: ${session.bound_host ?? '∅'} → ${requestHost ?? '∅'})`);
+        throw e;
+      }
+    }
+
     // Rotate: new secret, sliding 7-day expiry.
     const rotated = mintRefreshToken(session.id);
     await this.prisma.userSession.update({
@@ -377,6 +419,7 @@ export class AuthService implements OnModuleInit {
       ip: s.ip,
       user_agent: s.user_agent,
       device_fingerprint: s.device_fingerprint,
+      bound_host: s.bound_host,
       created_at: s.created_at,
       last_used_at: s.last_used_at,
       expires_at: s.expires_at,
