@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sites & domains · NexusPanel Docs</title>
+  <title>Sites &amp; domains · NexusPanel Docs</title>
   <link rel="stylesheet" href="../assets/style.css">
 </head>
 <body>
@@ -11,44 +11,135 @@
   <aside>
     <div class="brand">NexusPanel Docs</div>
     <div class="tag">v0.1.0-m0 · preview</div>
-    <div class="group">Start here</div>
+    <div class="group">Using the panel</div>
     <nav>
-      <a href="getting-started.html">Getting started</a>
-      <a href="first-account.html">Your first hosting account</a>
-    </nav>
-    <div class="group">Admin guide</div>
-    <nav>
-      <a href="accounts.html">Accounts & packages</a>
-      <a href="audit.html">Audit log & chain</a>
+      <a href="accounts.html">Accounts &amp; packages</a>
+      <a class="active" href="sites.html">Sites &amp; domains</a>
+      <a href="files.html">Files &amp; FTP</a>
+      <a href="ssl.html">SSL certificates</a>
     </nav>
     <div class="back"><a href="../index.html">← Documentation home</a></div>
   </aside>
   <main>
-    <h1>Sites & domains</h1>
+    <h1>Sites &amp; domains</h1>
     <p class="lede">
-      This chapter opens with its build phase. The scope below is committed in
-      the master specification; nothing here is live in the M0 preview.
+      A site is a domain served from a hosting account. This chapter covers
+      what is live in the panel today: creating sites, subdomains, aliases
+      and redirects — and the provisioning pipeline that stands behind every
+      serving change: <em>staging write → atomic swap → health check →
+      auto-rollback</em>, with a versioned history of every applied
+      configuration.
     </p>
 
-    <p><span class="badge">planned for P3</span></p>
+    <h2>Creating a site <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Open <strong>Sites</strong> in the sidebar and use the
+      <em>New site</em> form: an FQDN (<code>example.com</code>), the
+      hosting account the site belongs to, a type (<code>primary</code>,
+      <code>addon</code> or <code>parked</code>) and — optionally — the PHP
+      version the site will use. On submit the panel does, in order:
+    </p>
+    <ol>
+      <li>validates the FQDN strictly (lowercase, RFC host labels, 1–253
+        chars) and checks the account is active;</li>
+      <li>tells the agent to create the document root inside the account's
+        home (<code>/home/&lt;user&gt;/domains/&lt;name&gt;/public_html</code>
+        by default), confined by the agent's path policy — the panel cannot
+        ask for paths outside the home, and the agent would refuse even if
+        it tried;</li>
+      <li>renders the nginx vhost from panel-owned templates and applies it
+        atomically (see <em>The apply pipeline</em> below);</li>
+      <li>only then writes the database row, the first configuration version
+        and the audit entry — all in one transaction.</li>
+    </ol>
+    <p>
+      The order is deliberate: the agent owns the machine, the database
+      describes it. A failed agent call leaves <strong>no row</strong> — the
+      panel never records a site it could not actually provision. The error
+      you see in the UI is the one the agent returned.
+    </p>
 
-    <h2>Planned scope</h2>
+    <h2>Who can see and manage sites</h2>
+    <p>
+      Sites belong to hosting accounts, and the ownership boundary follows
+      the account: server admins see every site; everyone else sees only
+      sites of accounts they hold an active access row for. A site outside
+      your visibility answers <strong>404, not 403</strong> — account and
+      site existence cannot be probed across the boundary (API spec §3.2).
+      Within an account:
+    </p>
+    <table>
+      <tr><th>Role</th><td>owner</td><td>admin</td><td>member</td><td>readonly</td></tr>
+      <tr><th>site permissions</th><td>full</td><td>full</td><td>view</td><td>view</td></tr>
+    </table>
+
+    <h2>Subdomains, aliases, redirects</h2>
+    <p>
+      All three live on the site's detail panel (select a site in the list).
+    </p>
     <ul>
-      <li>Domains, subdomains, aliases and redirects</li>
-      <li>Per-site PHP-FPM pools (PHP 8.1–8.4)</li>
-      <li>Let's Encrypt issue / renew / revoke (http-01 + dns-01)</li>
-      <li>Versioned nginx config engine with validate → apply → auto-rollback</li>
+      <li><strong>Subdomains</strong> are separate sites under the domain
+        (<code>blog.example.com</code>) with their own document root and
+        their own vhost file. One DNS label at a time; duplicates are
+        refused with 409.</li>
+      <li><strong>Aliases</strong> are additional names that serve the
+        <em>same</em> site. Adding or removing an alias rewrites the
+        parent's vhost <code>server_name</code> list and re-applies it.</li>
+      <li><strong>Redirects</strong> map a path to an http(s) destination
+        with status 301, 302, 307 or 308. Exact-match by default, or
+        wildcard (prefix) matches. Redirect changes also re-apply the
+        parent's vhost.</li>
     </ul>
-
-    <div class="callout">
-      Docs ship together with the feature (Definition of Done, BUILD_PLAN §1) —
-      when sites & domains goes live, this page gets full procedures and
-      regenerated screenshots in the same merge.
+    <div class="callout warn">
+      Redirect paths and destinations are embedded in nginx configuration,
+      so they are validated against a strict allowlist (URL-safe characters
+      only — no whitespace, quotes, braces or semicolons). Anything that
+      could form an nginx directive is rejected with 422, not escaped.
     </div>
+
+    <h2>The apply pipeline</h2>
+    <p>
+      Every vhost change goes through the same pipeline on the node:
+    </p>
+    <ol>
+      <li><strong>Staging write</strong> — the new configuration lands in
+        the target directory under a staging name;</li>
+      <li><strong>Atomic swap</strong> — an atomic rename puts it in place;
+        readers never see a half-written file;</li>
+      <li><strong>Health check</strong> — the agent runs the webserver's
+        config test. On nodes without a webserver binary (development), the
+        result is reported as <code>skipped</code> with the reason — never
+        silently ignored;</li>
+      <li><strong>Auto-rollback</strong> — if the health check fails, the
+        previous configuration is restored byte-for-byte and the change is
+        rejected with the test output.</li>
+    </ol>
+
+    <h2>Configuration history</h2>
+    <p>
+      Each successful vhost apply records a new <strong>configuration
+      version</strong> for the site (who rendered it, when, the exact bytes).
+      History is append-only; deactivating a site marks its versions
+      inactive without deleting them. The configuration engine (version
+      timeline, drift detection, one-click rollback) builds directly on this
+      history and ships with the config-engine milestone.
+    </p>
+
+    <h2>What is not live yet</h2>
+    <ul>
+      <li><strong>PHP-FPM pools</strong> — the site stores its PHP version
+        choice today (validated against the account's package); the actual
+        per-site pool provisioning lands with the PHP milestone.</li>
+      <li><strong>SSL</strong> — certificate issuance and per-site HTTPS are
+        separate milestones; the <a href="ssl.html">SSL chapter</a> follows
+        the same pipeline once live.</li>
+      <li><strong>Site logs, staging clones and git deployments</strong> —
+        later phases (P3 continues, P6).</li>
+    </ul>
 
     <div class="pager">
       <a href="../index.html">← Documentation home</a>
-      <a href="audit.html">Audit log &amp; chain →</a>
+      <a href="files.html">Files &amp; FTP →</a>
     </div>
   </main>
 </div>
