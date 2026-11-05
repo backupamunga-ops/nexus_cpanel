@@ -58,34 +58,41 @@
     <p>
       Each setting carries an explicit enforcement badge in the UI. Values
       marked <span class="badge ok">enforced</span> are read by the running
-      system today. Values marked <span class="badge">stored — not yet
-      enforced</span> are validated and audited but the runtime seam that
-      reads them has not landed yet: the login path currently takes its
-      lockout and session constants from environment variables
-      (<code>LOCKOUT_THRESHOLD</code>, <code>LOCKOUT_MINUTES</code>,
-      <code>REFRESH_TTL_DAYS</code>) and the 12-character password minimum
-      is fixed in code. Wiring those seams to read stored settings — with
-      env as fallback — lands incrementally, and each flip is a small,
-      individually auditable change. Deliberately, the panel never pretends
-      a stored number is already protecting anyone.
+      system today: the four security integers — lockout threshold, lockout
+      duration, session lifetime and the password minimum — are read
+      <strong>live</strong> from this table at every enforcement event
+      (each login attempt, each lock applied, each login and refresh
+      rotation, every password set). There is no cache and no restart:
+      an admin's change takes effect on the very next event. If a read
+      fails, the seam falls back to the catalog default — a degraded read
+      can only ever return the shipped baseline, never something weaker.
+      Values still marked <span class="badge">stored — not yet
+      enforced</span> are validated and audited but their runtime seam
+      (instance-name headings, the sign-in banner, a mandatory-2FA gate,
+      audit-log pruning) has not landed yet. Deliberately, the panel never
+      pretends a stored number is already protecting anyone.
     </p>
     <div class="callout">
       Decision D-11 (master documentation §10): server settings are
       <em>store-first</em> — validated, audited values now; enforcement
-      seams wired incrementally. This keeps config management out of the
-      security-critical login path until each seam can be changed with its
-      own tests.
+      seams wired incrementally, each with its own tests. With the four
+      security integers wired, the former environment variables
+      (<code>LOCKOUT_THRESHOLD</code>, <code>LOCKOUT_MINUTES</code>,
+      <code>REFRESH_TTL_DAYS</code>) and the code-fixed 12-character
+      minimum are retired: this table is the single source of truth for
+      them, and the access-token TTL (15 min, C3) remains deliberately
+      env-fixed.
     </div>
 
     <h2>Current catalog <span class="badge ok">live</span></h2>
     <ul>
-      <li><code>platform.instance_name</code> — display name (1–64 chars).</li>
-      <li><code>platform.login_notice</code> — optional sign-in banner text (≤ 200 chars).</li>
-      <li><code>security.totp_required</code> — require 2FA for all users (pending enforcement).</li>
-      <li><code>security.max_failed_logins</code> — lockout threshold, 3–10 (runtime default 5).</li>
-      <li><code>security.lockout_minutes</code> — lockout duration, 5–1440 (runtime default 15).</li>
-      <li><code>security.password_min_length</code> — 8–128 (runtime fixed at 12).</li>
-      <li><code>security.session_ttl_days</code> — refresh-token lifetime, 1–30 (runtime default 7).</li>
+      <li><code>platform.instance_name</code> — display name (1–64 chars; not yet enforced).</li>
+      <li><code>platform.login_notice</code> — optional sign-in banner text (≤ 200 chars; not yet enforced).</li>
+      <li><code>security.totp_required</code> — require 2FA for all users (not yet enforced).</li>
+      <li><code>security.max_failed_logins</code> — lockout threshold, 3–10 (default 5; <strong>enforced</strong>).</li>
+      <li><code>security.lockout_minutes</code> — lockout duration, 5–1440 (default 15; <strong>enforced</strong>).</li>
+      <li><code>security.password_min_length</code> — 8–128 (default 12; <strong>enforced</strong> — backup codes are hashed outside this policy).</li>
+      <li><code>security.session_ttl_days</code> — refresh-token lifetime, 1–30 (default 7; <strong>enforced</strong> — cookie Max-Age follows).</li>
       <li><code>audit.retention_days</code> — audit-trail retention, 30–3650 (default 365; pruning not built).</li>
     </ul>
 
