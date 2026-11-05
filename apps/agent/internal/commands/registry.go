@@ -17,6 +17,7 @@ type Deps struct {
 	Verifier   *auth.Verifier
 	WAL        *wal.Queue
 	CgroupRoot string // cgroup v2 root; overridable in tests
+	HomeRoot   string // C13 confined root for hosting-account home dirs
 }
 
 // Registry maps method names to handlers.
@@ -30,6 +31,9 @@ type Registry struct {
 func NewRegistry(deps Deps) *Registry {
 	if deps.CgroupRoot == "" {
 		deps.CgroupRoot = "/sys/fs/cgroup"
+	}
+	if deps.HomeRoot == "" {
+		deps.HomeRoot = defaultHomeRoot
 	}
 	r := &Registry{deps: deps, m: map[string]rpc.Handler{}}
 

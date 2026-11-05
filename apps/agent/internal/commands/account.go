@@ -53,16 +53,27 @@ func (r *Registry) accountCreate(id string, raw json.RawMessage) (any, *rpc.Audi
 			Data:    map[string]any{"username": p.Username},
 		}
 	}
-	if p.Homedir == "" {
-		p.Homedir = "/home/" + p.Username
+	// C13 path confinement: homedir and shell arrive inside the signed
+	// command; the signature proves origin, not safety. Confine here —
+	// before any lookup or exec.
+	homedir, err := confineHomeDir(p.Homedir, p.Username, r.deps.HomeRoot)
+	if err != nil {
+		return nil, nil, err
 	}
-	shell := p.Shell
-	if shell == "" {
-		shell = "/usr/sbin/nologin"
+	if existingSymlink(homedir) {
+		return nil, nil, &rpc.RPCError{
+			Code:    rpc.CodeInvalidParams,
+			Message: "homedir exists as a symlink",
+			Data:    map[string]any{"homedir": homedir},
+		}
+	}
+	shell, err := confineShell(p.Shell)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	if uid, gid, ok := lookupUser(p.Username); ok {
-		return accountCreateResult{UID: uid, GID: gid, Homedir: p.Homedir}, nil, nil
+		return accountCreateResult{UID: uid, GID: gid, Homedir: homedir}, nil, nil
 	}
 
 	// Typed exec of a fixed binary with validated arguments. Never a shell.
@@ -70,7 +81,7 @@ func (r *Registry) accountCreate(id string, raw json.RawMessage) (any, *rpc.Audi
 	if err != nil {
 		return nil, nil, &rpc.RPCError{Code: rpc.CodePrecondition, Message: "useradd not available"}
 	}
-	cmd := exec.Command(useradd, "--create-home", "--home-dir", p.Homedir, "--shell", shell, p.Username)
+	cmd := exec.Command(useradd, "--create-home", "--home-dir", homedir, "--shell", shell, p.Username)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return nil, nil, &rpc.RPCError{
 			Code:    rpc.CodeInternalError,
@@ -85,7 +96,7 @@ func (r *Registry) accountCreate(id string, raw json.RawMessage) (any, *rpc.Audi
 	entry := r.deps.WAL.NewEntry("account.create", map[string]any{"username": p.Username, "uid": uid})
 	_ = r.deps.WAL.Append(entry)
 
-	return accountCreateResult{UID: uid, GID: gid, Homedir: p.Homedir}, auditQueued(entry), nil
+	return accountCreateResult{UID: uid, GID: gid, Homedir: homedir}, auditQueued(entry), nil
 }
 
 type accountNameParams struct {
