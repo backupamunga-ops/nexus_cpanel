@@ -21,6 +21,7 @@ apps/agent/bin/
 *.pem
 *.key
 !/specs/**/*.pem
+dev-keys/
 
 # Logs & temp
 logs/
