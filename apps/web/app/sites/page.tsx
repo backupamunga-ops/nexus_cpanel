@@ -58,6 +58,13 @@ interface SslCertDto {
   auto_renew: boolean;
 }
 
+interface PhpView {
+  domain_id: string;
+  php_version: string | null;
+  pool: { version: string; config: Record<string, unknown>; conf_content: string } | null;
+  offered_by_package: string[];
+}
+
 interface AccountOption {
   id: string;
   username: string;
@@ -76,6 +83,12 @@ export default function SitesPage() {
   const [redirects, setRedirects] = useState<RedirectDto[]>([]);
   const [cert, setCert] = useState<SslCertDto | null>(null);
   const [acmeEmail, setAcmeEmail] = useState('');
+  const [php, setPhp] = useState<PhpView | null>(null);
+  const [phpVersion, setPhpVersion] = useState('');
+  const [phpMaxChildren, setPhpMaxChildren] = useState('10');
+  const [phpMemory, setPhpMemory] = useState('128M');
+  const [phpUpload, setPhpUpload] = useState('32M');
+  const [phpMaxExec, setPhpMaxExec] = useState('30');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -133,6 +146,14 @@ export default function SitesPage() {
       setAliases(a.data ?? []);
       setRedirects(r.data ?? []);
       setCert(ssl.certificate ?? null);
+      const pv = await api<PhpView>(`/domains/${d.id}/php`);
+      setPhp(pv);
+      setPhpVersion(pv.php_version ?? '');
+      const cfg = pv.pool?.config ?? {};
+      setPhpMaxChildren(String((cfg['pm.max_children'] as number) ?? 10));
+      setPhpMemory((cfg['memory_limit'] as string) ?? '128M');
+      setPhpUpload((cfg['upload_max_filesize'] as string) ?? '32M');
+      setPhpMaxExec(String((cfg['max_execution_time'] as number) ?? 30));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'failed to load site detail');
     }
@@ -606,6 +627,95 @@ export default function SitesPage() {
                     </div>
                   </>
                 )}
+              </div>
+
+              <div className="np-card">
+                <h3 style={{ marginTop: 0 }}>PHP</h3>
+                <p style={{ color: 'var(--np-muted)', fontSize: 13, marginTop: 0 }}>
+                  Per-site PHP-FPM pool. The version must be installed on the node and
+                  offered by the account&apos;s package; pool values are enforced by the
+                  agent (unknown keys are rejected, not ignored).
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginTop: 8 }}>
+                  <label style={{ fontSize: 13 }}>
+                    Version
+                    <select
+                      className="np-input"
+                      value={phpVersion}
+                      onChange={(e) => setPhpVersion(e.target.value)}
+                      style={{ marginTop: 2 }}
+                    >
+                      <option value="">none</option>
+                      {['8.1', '8.2', '8.3', '8.4'].map((v) => (
+                        <option key={v} value={v}>
+                          {v}
+                          {php && !php.offered_by_package.includes(v) ? ' (not in package)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label style={{ fontSize: 13 }}>
+                    pm.max_children
+                    <input className="np-input" type="number" min="1" max="500" value={phpMaxChildren}
+                      onChange={(e) => setPhpMaxChildren(e.target.value)} style={{ marginTop: 2 }} />
+                  </label>
+                  <label style={{ fontSize: 13 }}>
+                    memory_limit
+                    <input className="np-input" value={phpMemory} onChange={(e) => setPhpMemory(e.target.value)}
+                      placeholder="128M" style={{ marginTop: 2 }} />
+                  </label>
+                  <label style={{ fontSize: 13 }}>
+                    upload_max_filesize
+                    <input className="np-input" value={phpUpload} onChange={(e) => setPhpUpload(e.target.value)}
+                      placeholder="32M" style={{ marginTop: 2 }} />
+                  </label>
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
+                  <button
+                    className="np-button"
+                    disabled={busy || phpVersion === ''}
+                    onClick={() =>
+                      void mutate(
+                        () =>
+                          api(`/domains/${selected.id}/php`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({
+                              php_version: phpVersion,
+                              pool: {
+                                'pm.max_children': Number(phpMaxChildren),
+                                memory_limit: phpMemory.trim(),
+                                upload_max_filesize: phpUpload.trim(),
+                                max_execution_time: Number(phpMaxExec),
+                              },
+                            }),
+                          }),
+                        `PHP ${phpVersion} pool applied.`,
+                      )
+                    }
+                  >
+                    Apply PHP pool
+                  </button>
+                  {php?.pool && (
+                    <button
+                      className="np-button"
+                      disabled={busy}
+                      onClick={() => {
+                        if (!window.confirm('Remove the PHP pool for this site?')) return;
+                        void mutate(
+                          () => api(`/domains/${selected.id}/php`, { method: 'PATCH', body: JSON.stringify({ php_version: null }) }),
+                          'PHP pool removed.',
+                        );
+                      }}
+                    >
+                      Remove PHP
+                    </button>
+                  )}
+                  {php?.pool && (
+                    <span style={{ fontSize: 12, color: 'var(--np-muted)' }}>
+                      active: php {php.pool.version} · v{''}
+                    </span>
+                  )}
+                </div>
               </div>
             </>
           )}

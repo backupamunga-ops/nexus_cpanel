@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PHP per site · NexusPanel Docs</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="portal">
+  <aside>
+    <div class="brand">NexusPanel Docs</div>
+    <div class="tag">v0.1.0-m0 · preview</div>
+    <div class="group">Using the panel</div>
+    <nav>
+      <a href="accounts.html">Accounts &amp; packages</a>
+      <a href="sites.html">Sites &amp; domains</a>
+      <a class="active" href="php.html">PHP per site</a>
+      <a href="ssl.html">SSL certificates</a>
+    </nav>
+    <div class="back"><a href="../index.html">← Documentation home</a></div>
+  </aside>
+  <main>
+    <h1>PHP per site</h1>
+    <p class="lede">
+      Each site runs its own PHP-FPM pool: an isolated process group with its
+      own socket, its own limits, and its own PHP version. One site's memory
+      spike cannot starve its neighbors — that is the point of per-site
+      pools.
+    </p>
+
+    <h2>Choosing a version and pool settings <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Open the site in <strong>Sites</strong> and use the <em>PHP</em> card.
+      The version selector offers PHP 8.1–8.4; versions not in the account's
+      package are marked and rejected server-side, and versions not
+      <em>installed on the node</em> are refused by the agent with a clear
+      precondition — installing PHP versions is an operator task, never a
+      signed-command away.
+    </p>
+    <p>
+      Pool settings the panel can manage (unknown keys are rejected on both
+      the control plane and the agent — a typo must never silently enforce
+      nothing):
+    </p>
+    <ul>
+      <li><code>pm</code> — dynamic, static or ondemand process management;</li>
+      <li><code>pm.max_children</code> and the spare-server pair — the
+        process budget (1–500);</li>
+      <li><code>memory_limit</code>, <code>upload_max_filesize</code> —
+        sizes like <code>128M</code>;</li>
+      <li><code>max_execution_time</code> — 1–300 seconds.</li>
+    </ul>
+
+    <h2>What lands on the node</h2>
+    <p>
+      A pool file at <code>/etc/php/&lt;version&gt;/pools/&lt;domain&gt;.conf</code>
+      — the site's user and group, a dedicated socket
+      (<code>/run/php/php&lt;version&gt;-fpm-&lt;domain&gt;.sock</code>), and
+      the settings above as <code>php_admin_value</code> entries. The
+      rendered file is recorded verbatim in the site's configuration
+      history, so the config engine treats PHP pools and nginx vhosts alike:
+      versioned, audited, comparable for drift.
+    </p>
+
+    <h2>Changing and removing</h2>
+    <ul>
+      <li><strong>Same version, new settings</strong> — the pool file is
+        rewritten in place.</li>
+      <li><strong>New version</strong> — the old pool file is removed, the
+        new one created; the site's <code>php_version</code> and the config
+        history update together in one transaction.</li>
+      <li><strong>Remove</strong> — the pool file is deleted and the site
+        runs without PHP until a version is chosen again.</li>
+    </ul>
+
+    <div class="pager">
+      <a href="../index.html">← Documentation home</a>
+      <a href="ssl.html">SSL certificates →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

@@ -29,6 +29,7 @@ export const WEB_KNOWN_PERMISSIONS: readonly string[] = [
   'file:read',
   'file:write',
   'package:create',
+  'php:manage',
   'package:delete',
   'package:list',
   'package:read',
