@@ -699,6 +699,109 @@ export class AgentClientService {
     return r.result;
   }
 
+  // ---- P4: mail (§4.8, ADR-0013 — the agent owns files, not credentials) ----
+
+  async mailCreateDomain(domain: string): Promise<{
+    status: string;
+    domain: string;
+    maps: { built: boolean; skipped?: string };
+  }> {
+    const r = await this.call<{ status: string; domain: string; maps: { built: boolean; skipped?: string } }>(
+      'mail.create_domain',
+      { domain },
+    );
+    return r.result;
+  }
+
+  async mailDeleteDomain(domain: string): Promise<{
+    status: string;
+    domain: string;
+    maps: { built: boolean; skipped?: string };
+  }> {
+    const r = await this.call<{ status: string; domain: string; maps: { built: boolean; skipped?: string } }>(
+      'mail.delete_domain',
+      { domain },
+    );
+    return r.result;
+  }
+
+  async mailCreateMailbox(email: string, quotaMb: number): Promise<{
+    status: string;
+    email: string;
+    maildir: string;
+    quota_mb: number;
+    ownership: { applied: boolean; skipped?: string };
+    maps: { built: boolean; skipped?: string };
+  }> {
+    const r = await this.call<{
+      status: string;
+      email: string;
+      maildir: string;
+      quota_mb: number;
+      ownership: { applied: boolean; skipped?: string };
+      maps: { built: boolean; skipped?: string };
+    }>('mail.create_mailbox', { email, quota_mb: quotaMb });
+    return r.result;
+  }
+
+  async mailModifyMailbox(email: string, quotaMb: number): Promise<{ status: string; email: string; quota_mb: number }> {
+    const r = await this.call<{ status: string; email: string; quota_mb: number }>('mail.modify_mailbox', {
+      email,
+      quota_mb: quotaMb,
+    });
+    return r.result;
+  }
+
+  async mailDeleteMailbox(email: string, preserveMail: boolean): Promise<{
+    status: string;
+    email: string;
+    preserved_as?: string;
+  }> {
+    const r = await this.call<{ status: string; email: string; preserved_as?: string }>('mail.delete_mailbox', {
+      email,
+      preserve_mail: preserveMail,
+    });
+    return r.result;
+  }
+
+  async mailCreateAlias(source: string, destination: string): Promise<{ status: string; maps: { built: boolean; skipped?: string } }> {
+    const r = await this.call<{ status: string; maps: { built: boolean; skipped?: string } }>('mail.create_alias', {
+      source,
+      destination,
+    });
+    return r.result;
+  }
+
+  async mailDeleteAlias(source: string): Promise<{ status: string }> {
+    const r = await this.call<{ status: string }>('mail.delete_alias', { source });
+    return r.result;
+  }
+
+  async mailCreateAutoresponder(email: string, subject: string, body: string): Promise<{ status: string; email: string }> {
+    const r = await this.call<{ status: string; email: string }>('mail.create_autoresponder', {
+      email,
+      subject,
+      body,
+    });
+    return r.result;
+  }
+
+  async mailDeleteAutoresponder(email: string): Promise<{ status: string }> {
+    const r = await this.call<{ status: string }>('mail.delete_autoresponder', { email });
+    return r.result;
+  }
+
+  async mailReload(): Promise<{
+    status: string;
+    services: Array<{ service: string; applied: boolean; skipped?: string; detail?: string }>;
+  }> {
+    const r = await this.call<{
+      status: string;
+      services: Array<{ service: string; applied: boolean; skipped?: string; detail?: string }>;
+    }>('mail.reload', {});
+    return r.result;
+  }
+
   /** Exposed for tests: the exact bytes that were signed. */
   static signatureInput(
     method: string,

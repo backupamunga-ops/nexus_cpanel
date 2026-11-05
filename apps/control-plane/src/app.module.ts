@@ -10,6 +10,7 @@ import { FilesModule } from './files/files.module';
 import { SshKeysModule } from './sshkeys/sshkeys.module';
 import { FtpModule } from './ftp/ftp.module';
 import { DnsModule } from './dns/dns.module';
+import { MailModule } from './mail/mail.module';
 import { SslModule } from './ssl/ssl.module';
 import { PhpModule } from './php/php.module';
 import { ConfigModule } from './config/config.module';
@@ -33,6 +34,7 @@ import { PrismaModule } from './prisma/prisma.module';
     SshKeysModule,
     FtpModule,
     DnsModule,
+    MailModule,
     SslModule,
     PhpModule,
     ConfigModule,

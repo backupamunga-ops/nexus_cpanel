@@ -151,7 +151,9 @@ describe('ApiTokensService (C4)', () => {
 
   it('every KNOWN_PERMISSIONS entry is a well-formed resource:action string', () => {
     for (const p of KNOWN_PERMISSIONS) {
-      expect(p).toMatch(/^[a-z]+:[a-z0-9]+$/);
+      // Nested resources are allowed (mail:queue:read, API spec §4.8) —
+      // lowercase segments separated by colons, at least one colon.
+      expect(p).toMatch(/^[a-z]+(:[a-z0-9]+)+$/);
     }
     // The self-service set and the account-role matrix must stay inside the
     // vocabulary — the CI vocabulary check enforces the controller direction.
