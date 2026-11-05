@@ -25,6 +25,10 @@ type Deps struct {
         ACMEDirectory string       // ACME directory URL; default Let's Encrypt production
         ACMEHTTP      *http.Client // injected for tests against a fake CA
         PhpRoot       string       // php version root (e.g. /etc/php); overridable in tests
+        FtpConfigDir  string       // vsftpd per-user config dir; overridable in tests
+        FtpUserDbPath string       // pam_userdb source/db base path; overridable in tests
+        OpensslBinary string       // openssl path; empty = exec.LookPath (tests inject a fake)
+        DbLoadBinary  string       // db_load path; empty = exec.LookPath (tests inject a fake)
 }
 
 // Registry maps method names to handlers.
@@ -106,6 +110,12 @@ func NewRegistry(deps Deps) *Registry {
         r.m["ssh.deploy_keys"] = r.sshDeployKeys
         r.m["ssh.list_deployed"] = r.sshListDeployed
 
+        // ftp.* (ADR-0011 amendment to §4) — vsftpd virtual users.
+        r.m["ftp.create_account"] = r.ftpCreateAccount
+        r.m["ftp.delete_account"] = r.ftpDeleteAccount
+        r.m["ftp.set_password"] = r.ftpSetPassword
+        r.m["ftp.list_accounts"] = r.ftpListAccounts
+
         // system.* (§4.15) — M0 subset
         r.m["system.health"] = r.systemHealth
         r.m["system.info"] = r.systemInfo
@@ -126,7 +136,7 @@ func (r *Registry) IsReadOnly(method string) bool {
         case "account.usage", "account.list", "system.health", "system.info", "ssl.list", "php.list_versions",
                 "config.validate", "config.drift_check", "config.list_active",
                 "filesystem.list", "filesystem.read", "filesystem.usage",
-                "ssh.list_deployed":
+                "ssh.list_deployed", "ftp.list_accounts":
                 return true
         }
         return false
