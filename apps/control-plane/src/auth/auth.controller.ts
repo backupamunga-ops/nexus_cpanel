@@ -13,6 +13,7 @@ import {
 import type { Response } from 'express';
 import { AuthService, AuthSessionTokens, LoginContext } from './auth.service';
 import { TwoFactorService } from './two-factor.service';
+import { SettingsService } from '../settings/settings.service';
 import { Public } from './public.decorator';
 import {
   clearRefreshCookie,
@@ -68,6 +69,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly twoFactor: TwoFactorService,
+    private readonly settings: SettingsService,
   ) {}
 
   @Public()
@@ -175,17 +177,23 @@ export class AuthController {
   /**
    * Transport dispatch shared by login and refresh. Cookie mode strips the
    * refresh token from the response body and hands it to Set-Cookie instead;
-   * body mode keeps the §4.1 contract for programmatic clients.
+   * body mode keeps the §4.1 contract for programmatic clients. The cookie
+   * Max-Age reads the live security.session_ttl_days setting (D-11) so it
+   * always mirrors the session's server-side sliding expiry.
    */
-  private deliver(
+  private async deliver(
     result: AuthSessionTokens,
     req: AuthenticatedRequest,
     res: Response,
     ctx: LoginContext,
     forceCookie = false,
-  ): unknown {
+  ): Promise<unknown> {
     if (forceCookie || wantsCookieTransport(req)) {
-      setRefreshCookie(res, result.refresh_token);
+      setRefreshCookie(
+        res,
+        result.refresh_token,
+        await this.settings.runtimeInt('security.session_ttl_days'),
+      );
       const { refresh_token: _omit, ...body } = result;
       void _omit;
       return body;

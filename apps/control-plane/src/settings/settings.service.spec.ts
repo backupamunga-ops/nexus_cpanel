@@ -165,3 +165,32 @@ describe('SettingsService (server settings, P2)', () => {
     expect(dto.enforced).toBe(false);
   });
 });
+
+describe('SettingsService.runtimeInt (D-11 runtime seam)', () => {
+  it('stored override wins, absent row falls back to the catalog default', async () => {
+    const { svc } = rowHarness([
+      { key: 'security.max_failed_logins', value: 7, updated_by: ADMIN, updated_at: new Date() },
+    ]);
+    expect(await svc.runtimeInt('security.max_failed_logins')).toBe(7);
+    expect(await svc.runtimeInt('security.lockout_minutes')).toBe(15); // default
+  });
+
+  it('any read failure falls back to the default (login path must not throw)', async () => {
+    const { svc, prisma } = rowHarness();
+    (prisma.systemSetting.findUnique as jest.Mock).mockRejectedValue(new Error('db down'));
+    expect(await svc.runtimeInt('security.session_ttl_days')).toBe(7);
+  });
+
+  it('a malformed stored value falls back to the default instead of leaking junk', async () => {
+    const { svc } = rowHarness([
+      { key: 'security.password_min_length', value: '12', updated_by: ADMIN, updated_at: new Date() }, // wrong type
+    ]);
+    expect(await svc.runtimeInt('security.password_min_length')).toBe(12);
+  });
+
+  it('rejects non-integer keys loudly (programming error, not a silent no-op)', async () => {
+    const { svc } = rowHarness();
+    await expect(svc.runtimeInt('platform.instance_name')).rejects.toThrow(TypeError);
+    await expect(svc.runtimeInt('security.nope')).rejects.toThrow(TypeError);
+  });
+});

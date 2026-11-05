@@ -10,6 +10,7 @@ import { TokensController } from './api-tokens.controller';
 import { TwoFactorService } from './two-factor.service';
 import { SecretBox } from './secret-box';
 import { AuditModule } from '../audit/audit.module';
+import { SettingsModule } from '../settings/settings.module';
 
 /**
  * Auth module — global gates live here (APP_GUARD) so every controller in
@@ -18,7 +19,7 @@ import { AuditModule } from '../audit/audit.module';
  * matters: authentication first.
  */
 @Module({
-  imports: [AuditModule],
+  imports: [AuditModule, SettingsModule],
   controllers: [AuthController, TokensController],
   providers: [
     AuthService,

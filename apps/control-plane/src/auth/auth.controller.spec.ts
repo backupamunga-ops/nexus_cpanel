@@ -2,6 +2,7 @@ import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { TwoFactorService } from './two-factor.service';
+import { SettingsService } from '../settings/settings.service';
 import { REFRESH_COOKIE } from './refresh-cookie';
 
 /**
@@ -55,7 +56,11 @@ function makeController(): AuthController {
     logout: jest.fn().mockResolvedValue(undefined),
   } as unknown as AuthService;
   const twoFactor = {} as TwoFactorService;
-  return new AuthController(auth, twoFactor);
+  // D-11: the cookie Max-Age mirrors the live security.session_ttl_days read.
+  const settings = {
+    runtimeInt: jest.fn().mockResolvedValue(7),
+  } as unknown as SettingsService;
+  return new AuthController(auth, twoFactor, settings);
 }
 
 function req(headers: Record<string, string | string[] | undefined>) {
@@ -83,6 +88,8 @@ describe('AuthController — refresh transport (C3)', () => {
     expect(options.httpOnly).toBe(true);
     expect(options.sameSite).toBe('strict');
     expect(options.path).toBe('/api/v1/auth');
+    // D-11: Max-Age mirrors the live security.session_ttl_days read (7d here).
+    expect(options.maxAge).toBe(7 * 24 * 60 * 60 * 1000);
   });
 
   it('body mode (no transport header): §4.1 contract — refresh_token in body, no cookie', async () => {

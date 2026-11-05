@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditAppender, InjectAudit } from '../audit/audit.service';
+import { SettingsService } from '../settings/settings.service';
 import { JwtService } from './jwt.service';
 import { TwoFactorService } from './two-factor.service';
 import { hashRefreshToken, mintRefreshToken, refreshSessionId } from './refresh-token';
@@ -35,11 +36,40 @@ export const ARGON2ID_PARAMS = { memoryCost: 65_536, timeCost: 3, parallelism: 4
 
 @Injectable()
 export class PasswordService implements PasswordHasher {
+  constructor(private readonly settings?: SettingsService) {}
+
+  /**
+   * Effective minimum password length (D-11): the stored
+   * `security.password_min_length` override when the settings seam is
+   * available, else the catalog default (12). No seam (unit tests, exotic
+   * bootstraps) means the shipped baseline — never weaker than C1's floor.
+   */
+  private async minLength(): Promise<number> {
+    return this.settings
+      ? this.settings.runtimeInt('security.password_min_length')
+      : 12;
+  }
+
   async hash(password: string): Promise<string> {
-    if (typeof password !== 'string' || password.length < 12) {
-      throw new Error('password policy: minimum 12 characters (C1)');
+    if (typeof password !== 'string') {
+      throw new Error('password policy: password must be a string (C1)');
+    }
+    const min = await this.minLength();
+    if (password.length < min) {
+      throw new Error(`password policy: minimum ${min} characters (C1)`);
     }
     return argon2Hash(password, ARGON2ID_PARAMS);
+  }
+
+  /**
+   * Argon2id for NON-password secrets (2FA backup codes, the login decoy):
+   * same C1 parameters, deliberately OUTSIDE the password policy. Backup
+   * codes are fixed-format ~19-char strings — an admin raising the password
+   * minimum must never brick enrollment, and the decoy secret must never
+   * trip the policy on the unknown-user path.
+   */
+  async hashSecret(secret: string): Promise<string> {
+    return argon2Hash(secret, ARGON2ID_PARAMS);
   }
 
   async verify(password: string, stored: string): Promise<boolean> {
@@ -89,7 +119,12 @@ function timingSafeEqual(a: Buffer, b: Buffer): boolean {
  * - Session host binding (C14): the session records the Host it was created
  *   on; refresh re-classifies the presenting Host against active reseller
  *   custom domains and refuses cross-domain replay (session-host.ts).
- * - Lockout: `failed_login_count` ≥ 5 ⇒ `locked_until` = now + 15 min.
+ * - Lockout: `failed_login_count` ≥ security.max_failed_logins ⇒
+ *   `locked_until` = now + security.lockout_minutes. Both are read LIVE from
+ *   the server-settings table at every event (D-11); absent rows fall back
+ *   to the catalog defaults (5 / 15).
+ * - Session lifetime: refresh tokens slide by security.session_ttl_days,
+ *   read live at login and every rotation; the cookie Max-Age mirrors it.
  * - Unknown-email logins burn a real Argon2id verify against a decoy hash so
  *   response timing does not leak account existence (no user oracle).
  * - 2FA (C2): totp-enabled users MUST present a valid TOTP or backup code;
@@ -144,15 +179,12 @@ export interface SessionView {
  */
 export type AuthSessionTokens = TokenPairResponse;
 
-const LOCKOUT_THRESHOLD = Number(process.env.LOCKOUT_THRESHOLD ?? 5);
-const LOCKOUT_MINUTES = Number(process.env.LOCKOUT_MINUTES ?? 15);
+/** Access-token TTL stays C3-fixed (env-tunable); it is not an admin setting. */
 const ACCESS_TTL_SECONDS = Number(process.env.ACCESS_TTL_SEC ?? 900); // 15 min (C3)
-const REFRESH_TTL_DAYS = Number(process.env.REFRESH_TTL_DAYS ?? 7); // 7 days (C3)
 
 @Injectable()
 export class AuthService implements OnModuleInit {
   private readonly logger = new Logger(AuthService.name);
-  private readonly hasher = new PasswordService();
   private readonly bootstrapSeed: Promise<void>;
   /** Decoy hash for the uniform-failure path (lazy, computed once). */
   private decoyHash: Promise<string> | null = null;
@@ -162,6 +194,8 @@ export class AuthService implements OnModuleInit {
     private readonly jwt: JwtService,
     @InjectAudit() private readonly audit: AuditAppender,
     private readonly twoFactor: TwoFactorService,
+    private readonly settings: SettingsService,
+    private readonly hasher: PasswordService,
   ) {
     const email = process.env.DEV_ADMIN_EMAIL;
     const password = process.env.DEV_ADMIN_PASSWORD;
@@ -289,7 +323,7 @@ export class AuthService implements OnModuleInit {
         ip: sanitizeIp(ctx.ip),
         user_agent: ctx.userAgent ?? null,
         bound_host: normalizeHost(ctx.host),
-        expires_at: addDays(REFRESH_TTL_DAYS),
+        expires_at: addDays(await this.sessionTtlDays()),
       },
     });
 
@@ -380,13 +414,13 @@ export class AuthService implements OnModuleInit {
       }
     }
 
-    // Rotate: new secret, sliding 7-day expiry.
+    // Rotate: new secret, sliding expiry per security.session_ttl_days (D-11).
     const rotated = mintRefreshToken(session.id);
     await this.prisma.userSession.update({
       where: { id: session.id },
       data: {
         refresh_token_hash: new Uint8Array(rotated.tokenHash),
-        expires_at: addDays(REFRESH_TTL_DAYS),
+        expires_at: addDays(await this.sessionTtlDays()),
         last_used_at: new Date(),
         ip: sanitizeIp(ctx.ip),
       },
@@ -480,22 +514,36 @@ export class AuthService implements OnModuleInit {
     };
   }
 
+  /** D-11 runtime seams — live settings reads, default on any failure. */
+  private lockoutThreshold(): Promise<number> {
+    return this.settings.runtimeInt('security.max_failed_logins');
+  }
+
+  private lockoutMinutes(): Promise<number> {
+    return this.settings.runtimeInt('security.lockout_minutes');
+  }
+
+  private sessionTtlDays(): Promise<number> {
+    return this.settings.runtimeInt('security.session_ttl_days');
+  }
+
   private async registerFailedAttempt(user: {
     id: string;
     failed_login_count: number;
   }): Promise<void> {
+    const [threshold, minutes] = await Promise.all([this.lockoutThreshold(), this.lockoutMinutes()]);
     const count = user.failed_login_count + 1;
     const data: { failed_login_count: number; locked_until?: Date } = { failed_login_count: count };
-    if (count >= LOCKOUT_THRESHOLD) {
-      data.locked_until = addMinutes(LOCKOUT_MINUTES);
-      this.logger.warn(`account locked for ${LOCKOUT_MINUTES}m after ${count} failures (${user.id})`);
+    if (count >= threshold) {
+      data.locked_until = addMinutes(minutes);
+      this.logger.warn(`account locked for ${minutes}m after ${count} failures (threshold ${threshold}) (${user.id})`);
     }
     await this.prisma.user.update({ where: { id: user.id }, data });
   }
 
-  /** Lazily-generated decoy Argon2id hash (of a throwaway secret). */
+  /** Lazily-generated decoy Argon2id hash (of a throwaway secret) — no password policy. */
   private decoyVerifyHash(): Promise<string> {
-    this.decoyHash ??= this.hasher.hash(crypto.randomBytes(24).toString('base64url'));
+    this.decoyHash ??= this.hasher.hashSecret(crypto.randomBytes(24).toString('base64url'));
     return this.decoyHash;
   }
 }

@@ -2,6 +2,7 @@ import { NotFoundException, UnauthorizedException } from '@nestjs/common';
 import * as crypto from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { InMemoryAuditService } from '../audit/audit.service';
+import { SettingsService } from '../settings/settings.service';
 import { ARGON2ID_PARAMS, AuthService, PasswordService } from './auth.service';
 import { JwtService } from './jwt.service';
 import { SecretBox } from './secret-box';
@@ -119,6 +120,9 @@ interface PrismaMock {
   reseller: {
     findMany: jest.Mock;
   };
+  systemSetting: {
+    findUnique: jest.Mock;
+  };
 }
 
 async function makeAuth(user: object | null) {
@@ -134,17 +138,34 @@ async function makeAuth(user: object | null) {
     // C14: active reseller custom domains; empty by default = no branded
     // origins, every host is panel-kind (the C3 suites' behavior).
     reseller: { findMany: jest.fn().mockResolvedValue([]) },
+    // D-11: settings rows; default resolve(undefined) → runtimeInt falls
+    // back to the catalog defaults, so every pre-existing suite runs on the
+    // shipped baseline (threshold 5 / 15m / 7d / 12 chars).
+    systemSetting: { findUnique: jest.fn() },
   };
   const audit = new InMemoryAuditService();
+  const settings = new SettingsService(prisma as unknown as PrismaService, audit);
   const jwt = new JwtService('unit-test-secret-0123456789abcdefghijklmnop');
   // 2FA with a test-key SecretBox + the same prisma mock (user rows flow
   // through consumeLoginCode for enrolled users).
   const box = new SecretBox(crypto.randomBytes(32));
   const hasher = new PasswordService();
   const twoFactor = new TwoFactorService(prisma as unknown as PrismaService, box, hasher, audit);
-  const auth = new AuthService(prisma as unknown as PrismaService, jwt, audit, twoFactor);
+  const auth = new AuthService(
+    prisma as unknown as PrismaService,
+    jwt,
+    audit,
+    twoFactor,
+    settings,
+    hasher,
+  );
   await auth.whenBootstrapSeeded();
-  return { auth, prisma, audit, jwt, box, twoFactor };
+  return { auth, prisma, audit, jwt, box, twoFactor, settings, hasher };
+}
+
+/** A stored settings row for the D-11 enforcement suites. */
+function settingRow(key: string, value: number) {
+  return { key, value, updated_by: null, updated_at: new Date() };
 }
 
 describe('AuthService (C3 login + sessions)', () => {
@@ -549,5 +570,132 @@ describe('AuthService (C14 session host binding)', () => {
 
     const second = await auth.refresh(first.refresh_token, { host: 'localhost:3000' });
     expect(second.access_token).toBeDefined();
+  });
+});
+
+/* ─────────── D-11 — runtime enforcement of server settings ─────────── */
+
+describe('AuthService (D-11 settings-driven enforcement)', () => {
+  const ORIGINAL_ENV = { ...process.env };
+  let passwordHash: string;
+
+  beforeAll(async () => {
+    passwordHash = await new PasswordService().hash(PASSWORD);
+  });
+
+  beforeEach(() => {
+    delete process.env.DEV_ADMIN_EMAIL;
+    delete process.env.DEV_ADMIN_PASSWORD;
+  });
+
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+  });
+
+  /** Points systemSetting.findUnique at a small key/value table. */
+  function storeSettings(prisma: PrismaMock, rows: { key: string; value: number }[]) {
+    const table = new Map(rows.map((r) => [r.key, settingRow(r.key, r.value)]));
+    prisma.systemSetting.findUnique.mockImplementation(async ({ where }: { where: { key: string } }) =>
+      table.get(where.key) ?? null,
+    );
+  }
+
+  it('lockout threshold comes from the stored setting, not the code constant', async () => {
+    const lockedUser = fakeUser({ password_hash: passwordHash, failed_login_count: 2 });
+    const { auth, prisma } = await makeAuth(lockedUser);
+    storeSettings(prisma, [{ key: 'security.max_failed_logins', value: 3 }]);
+
+    await expect(auth.login(EMAIL, 'wrong-password-123')).rejects.toThrow(UnauthorizedException);
+
+    const lockCall = prisma.user.update.mock.calls.find(
+      (c) => c[0].data?.locked_until instanceof Date,
+    );
+    expect(lockCall).toBeDefined();
+    expect(lockCall![0].data.failed_login_count).toBe(3); // threshold lowered to 3 via settings
+  });
+
+  it('lockout duration comes from the stored setting (12h, not the 15m default)', async () => {
+    const lockedUser = fakeUser({ password_hash: passwordHash, failed_login_count: 4 });
+    const { auth, prisma } = await makeAuth(lockedUser);
+    storeSettings(prisma, [{ key: 'security.lockout_minutes', value: 720 }]);
+
+    await expect(auth.login(EMAIL, 'wrong-password-123')).rejects.toThrow(UnauthorizedException);
+
+    const lockCall = prisma.user.update.mock.calls.find(
+      (c) => c[0].data?.locked_until instanceof Date,
+    );
+    const lockedUntil = lockCall![0].data.locked_until as Date;
+    const minutes = (lockedUntil.getTime() - Date.now()) / 60_000;
+    expect(minutes).toBeGreaterThan(719); // ≈ now + 720m
+    expect(minutes).toBeLessThan(721);
+  });
+
+  it('session lifetime follows security.session_ttl_days at login AND rotation', async () => {
+    const user = fakeUser({ password_hash: passwordHash });
+    const { auth, prisma } = await makeAuth(user);
+    storeSettings(prisma, [{ key: 'security.session_ttl_days', value: 30 }]);
+
+    await auth.login(EMAIL, PASSWORD, { deviceFingerprint: 'fp-A' });
+    const created = prisma.userSession.create.mock.calls[0][0].data;
+    const createdDays = (created.expires_at.getTime() - Date.now()) / (24 * 3600 * 1000);
+    expect(createdDays).toBeGreaterThan(29.9); // ≈ now + 30d
+    expect(createdDays).toBeLessThan(30.1);
+
+    prisma.userSession.findUnique.mockResolvedValue(
+      fakeSession('nxf1.x.y', user, { expires_at: new Date(Date.now() + 1000) }),
+    );
+    await auth.refresh('nxf1.x.y', { deviceFingerprint: 'fp-A' });
+    const rotated = prisma.userSession.update.mock.calls.at(-1)![0].data;
+    const rotatedDays = (rotated.expires_at.getTime() - Date.now()) / (24 * 3600 * 1000);
+    expect(rotatedDays).toBeGreaterThan(29.9); // sliding window re-armed to 30d
+    expect(rotatedDays).toBeLessThan(30.1);
+  });
+
+  it('absent setting rows fall back to the catalog defaults (no drift from C3 baseline)', async () => {
+    const lockedUser = fakeUser({ password_hash: passwordHash, failed_login_count: 4 });
+    const { auth, prisma } = await makeAuth(lockedUser);
+    // findUnique resolves null (default mock behavior) → threshold 5.
+    await expect(auth.login(EMAIL, 'wrong-password-123')).rejects.toThrow(UnauthorizedException);
+    const lockCall = prisma.user.update.mock.calls.find(
+      (c) => c[0].data?.locked_until instanceof Date,
+    );
+    expect(lockCall).toBeDefined();
+    expect(lockCall![0].data.failed_login_count).toBe(5);
+  });
+
+  it('a read failure falls back to defaults instead of throwing on the login path', async () => {
+    const lockedUser = fakeUser({ password_hash: passwordHash, failed_login_count: 4 });
+    const { auth, prisma } = await makeAuth(lockedUser);
+    prisma.systemSetting.findUnique.mockRejectedValue(new Error('db down'));
+    // Must NOT propagate the DB error: lockout proceeds with defaults (5/15).
+    await expect(auth.login(EMAIL, 'wrong-password-123')).rejects.toThrow(UnauthorizedException);
+    const lockCall = prisma.user.update.mock.calls.find(
+      (c) => c[0].data?.locked_until instanceof Date,
+    );
+    expect(lockCall).toBeDefined();
+    const minutes = (lockCall![0].data.locked_until as Date).getTime() - Date.now();
+    expect(minutes / 60_000).toBeGreaterThan(14); // ≈ 15m default
+    expect(minutes / 60_000).toBeLessThan(16);
+  });
+
+  it('password minimum length follows the stored setting', async () => {
+    const { prisma } = await makeAuth(fakeUser());
+    storeSettings(prisma, [{ key: 'security.password_min_length', value: 16 }]);
+    const hasher = new PasswordService(
+      new SettingsService(prisma as unknown as PrismaService, new InMemoryAuditService()),
+    );
+    await expect(hasher.hash('exactly16chars!!')).resolves.toBeDefined();
+    await expect(hasher.hash('only15chars!!!!')).rejects.toThrow('password policy: minimum 16');
+  });
+
+  it('hashSecret is deliberately OUTSIDE the password policy (backup codes, decoy)', async () => {
+    const { prisma } = await makeAuth(fakeUser());
+    // Even an extreme policy (min 128) must not affect non-password secrets.
+    storeSettings(prisma, [{ key: 'security.password_min_length', value: 128 }]);
+    const hasher = new PasswordService(
+      new SettingsService(prisma as unknown as PrismaService, new InMemoryAuditService()),
+    );
+    await expect(hasher.hashSecret('short')).resolves.toMatch(/^\$argon2id\$/);
+    await expect(hasher.hash('short')).rejects.toThrow('password policy');
   });
 });

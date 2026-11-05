@@ -122,7 +122,7 @@ export class TwoFactorService {
     const backupCodes = this.generateBackupCodes();
     const hashes: string[] = [];
     for (const c of backupCodes) {
-      hashes.push(await this.hasher.hash(c));
+      hashes.push(await this.hasher.hashSecret(c));
     }
     await this.prisma.user.update({
       where: { id: user.id },
@@ -175,7 +175,7 @@ export class TwoFactorService {
     const backupCodes = this.generateBackupCodes();
     const hashes: string[] = [];
     for (const c of backupCodes) {
-      hashes.push(await this.hasher.hash(c));
+      hashes.push(await this.hasher.hashSecret(c));
     }
     await this.prisma.user.update({
       where: { id: user.id },

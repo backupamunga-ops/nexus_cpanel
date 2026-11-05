@@ -18,7 +18,9 @@ import type { Response } from 'express';
  *   - SameSite=Strict     — never sent cross-site → CSRF-inert for refresh
  *   - Path=/api/v1/auth   — scoped: only auth endpoints ever receive it
  *   - Secure              — in production (dev runs plain-HTTP localhost)
- *   - Max-Age=7d          — mirrors REFRESH_TTL_DAYS (C3 sliding window)
+ *   - Max-Age              — mirrors the security.session_ttl_days setting
+ *                           (D-11): the caller passes the live value so the
+ *                           cookie always tracks the session's sliding expiry
  *
  * The cookie carries the same opaque, server-hashed random secret as the
  * body token — no signing needed; tampering fails the hash comparison.
@@ -26,9 +28,6 @@ import type { Response } from 'express';
 
 export const REFRESH_COOKIE = 'nexuspanel_rt';
 export const TRANSPORT_COOKIE_HEADER = 'x-auth-transport';
-
-/** TTL must mirror the session's sliding expiry in auth.service.ts. */
-const REFRESH_COOKIE_MAX_AGE_SECONDS = Number(process.env.REFRESH_TTL_DAYS ?? 7) * 24 * 60 * 60;
 
 /** Minimal structural view of a request's headers (Express-compatible). */
 interface HeaderCarrier {
@@ -41,14 +40,19 @@ export function wantsCookieTransport(req: HeaderCarrier): boolean {
   return typeof v === 'string' && v.trim().toLowerCase() === 'cookie';
 }
 
-/** Sets (or rotates) the refresh cookie on a passthrough response. */
-export function setRefreshCookie(res: Response, token: string): void {
+/**
+ * Sets (or rotates) the refresh cookie on a passthrough response. `ttlDays`
+ * is the live security.session_ttl_days value (D-11) — the controller reads
+ * it from SettingsService so the cookie always mirrors the session's
+ * server-side sliding expiry.
+ */
+export function setRefreshCookie(res: Response, token: string, ttlDays: number): void {
   res.cookie(REFRESH_COOKIE, token, {
     httpOnly: true,
     sameSite: 'strict',
     secure: process.env.NODE_ENV === 'production',
     path: '/api/v1/auth',
-    maxAge: REFRESH_COOKIE_MAX_AGE_SECONDS * 1000,
+    maxAge: ttlDays * 24 * 60 * 60 * 1000,
   });
 }
 

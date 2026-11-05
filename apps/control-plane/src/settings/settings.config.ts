@@ -13,10 +13,19 @@
  *
  * `enforced` is an honesty flag, not a capability flag: `false` means the
  * value is stored, validated and audited but the runtime seam that reads it
- * has not landed yet (login-path constants LOCKOUT_THRESHOLD /
- * LOCKOUT_MINUTES / REFRESH_TTL_DAYS / the 12-char password minimum are
- * env-or-code fixed today). The UI renders "stored — not yet enforced" for
- * those; enforcement wiring lands incrementally and flips the flag.
+ * has not landed yet. The UI renders "stored — not yet enforced" for those;
+ * enforcement wiring lands incrementally (decision D-11) and flips the flag.
+ *
+ * Enforced today (live-read at each enforcement event, stored override
+ * wins, catalog default on any read failure — SettingsService.runtimeInt):
+ *   - security.max_failed_logins / security.lockout_minutes (login lockout)
+ *   - security.session_ttl_days (refresh sliding window + cookie Max-Age)
+ *   - security.password_min_length (every new password, via PasswordService)
+ *
+ * Still stored-only: platform.instance_name, platform.login_notice,
+ * security.totp_required, audit.retention_days (their seams — UI headings,
+ * sign-in banner, a TOTP enrollment gate, retention pruning — are separate
+ * batches).
  */
 
 export type SettingCategory = 'platform' | 'security' | 'audit';
@@ -78,48 +87,48 @@ export const SETTING_DEFINITIONS: readonly SettingDefinition[] = [
     category: 'security',
     label: 'Max failed logins before lockout',
     description:
-      'Failed password or second-factor attempts allowed before the account locks. Runtime today: env LOCKOUT_THRESHOLD, default 5.',
+      'Failed password or second-factor attempts allowed before the account locks. Read live at every login attempt; falls back to 5 only if unset.',
     type: 'integer',
     default: 5,
     min: 3,
     max: 10,
-    enforced: false,
+    enforced: true,
   },
   {
     key: 'security.lockout_minutes',
     category: 'security',
     label: 'Lockout duration (minutes)',
     description:
-      'How long an account stays locked after exceeding the failure threshold. Runtime today: env LOCKOUT_MINUTES, default 15.',
+      'How long an account stays locked after exceeding the failure threshold. Read live when a lock is applied; falls back to 15 only if unset.',
     type: 'integer',
     default: 15,
     min: 5,
     max: 1440,
-    enforced: false,
+    enforced: true,
   },
   {
     key: 'security.password_min_length',
     category: 'security',
     label: 'Minimum password length',
     description:
-      'Shortest accepted password. Runtime today: fixed at 12 in the login path (Argon2id, C1).',
+      'Shortest accepted password (Argon2id, C1). Read live whenever a password is set; falls back to 12 only if unset. Backup codes are hashed outside this policy.',
     type: 'integer',
     default: 12,
     min: 8,
     max: 128,
-    enforced: false,
+    enforced: true,
   },
   {
     key: 'security.session_ttl_days',
     category: 'security',
     label: 'Session lifetime (days)',
     description:
-      'Refresh-token lifetime; sessions are device-bound (C3) and rotate on every refresh. Runtime today: env REFRESH_TTL_DAYS, default 7.',
+      'Refresh-token lifetime; sessions are device-bound (C3) and rotate on every refresh. Read live at login and each refresh (cookie Max-Age follows); falls back to 7 only if unset.',
     type: 'integer',
     default: 7,
     min: 1,
     max: 30,
-    enforced: false,
+    enforced: true,
   },
   {
     key: 'audit.retention_days',

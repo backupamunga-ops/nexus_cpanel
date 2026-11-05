@@ -85,6 +85,41 @@ export class SettingsService {
   }
 
   /**
+   * Runtime seam (D-11): the effective INTEGER value at an enforcement point.
+   *
+   *   - stored row wins (it was bounds-checked at write time);
+   *   - no row → the definition default;
+   *   - ANY read failure (DB hiccup, malformed row) → the definition default
+   *     as well. The default IS the documented secure baseline, so a degraded
+   *     read can only ever fall back to the shipped posture — never to
+   *     something weaker, and never to a thrown error on the login path.
+   *
+   * Live reads, deliberately uncached: the login path already burns tens of
+   * milliseconds of Argon2id, a PK lookup is noise next to that, and an
+   * uncached read means an admin's change takes effect on the very next
+   * event — no TTL window where the panel enforces a value nobody set.
+   * Integer-typed keys only (every current seam is); anything else is a
+   * programming error and throws loudly in tests rather than silently
+   * enforcing nothing.
+   */
+  async runtimeInt(key: string): Promise<number> {
+    const def = findSettingDefinition(key);
+    if (!def || def.type !== 'integer' || typeof def.default !== 'number') {
+      throw new TypeError(`runtimeInt() requires an integer-typed setting key, got '${key}'`);
+    }
+    const fallback = def.default;
+    try {
+      const row = (await this.prisma.systemSetting.findUnique({
+        where: { key },
+      })) as SettingRow | null;
+      const v = row?.value;
+      return typeof v === 'number' && Number.isInteger(v) ? v : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  /**
    * Stores a new value for a whitelisted key. The write and its audit entry
    * share one transaction, matching the packages/accounts pattern — a config
    * change without its audit entry must be impossible.
