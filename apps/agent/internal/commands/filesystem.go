@@ -37,8 +37,9 @@ type mkdirParams struct {
 }
 
 type mkdirResult struct {
-	Path    string `json:"path"`
-	Created bool   `json:"created"`
+	Path      string `json:"path"`
+	Created   bool   `json:"created"`
+	Ownership string `json:"ownership"`
 }
 
 // filesystemMkdir creates a directory (and parents) inside the account's
@@ -92,11 +93,7 @@ func (r *Registry) filesystemMkdir(id string, raw json.RawMessage) (any, *rpc.Au
 			"username": p.Username, "path": path, "created": false,
 		})
 		_ = r.deps.WAL.Append(entry)
-		return mkdirResult{Path: path, Created: false}, auditQueued(entry), nil
-	}
-
-	if _, _, ok := lookupUser(p.Username); !ok {
-		return nil, nil, &rpc.RPCError{Code: rpc.CodePrecondition, Message: "account does not exist"}
+		return mkdirResult{Path: path, Created: false, Ownership: "existing"}, auditQueued(entry), nil
 	}
 
 	if err := os.MkdirAll(path, os.FileMode(mode)); err != nil {
@@ -105,18 +102,19 @@ func (r *Registry) filesystemMkdir(id string, raw json.RawMessage) (any, *rpc.Au
 			Message: fmt.Sprintf("mkdir failed: %v", err),
 		}
 	}
-	if err := chownToUser(path, p.Username); err != nil {
-		// The directory exists but is root-owned: unusable by the account.
-		// Fail loudly — a docroot the account cannot write is fail-open.
+	ownership, err := chownToUserBestEffort(path, p.Username)
+	if err != nil {
+		// Root agent + failed ownership: the directory exists but is
+		// root-owned — unusable by the account. Fail loudly and clean up.
 		_ = os.RemoveAll(path)
 		return nil, nil, err
 	}
 
 	entry := r.deps.WAL.NewEntry("filesystem.mkdir", map[string]any{
-		"username": p.Username, "path": path, "mode": mode, "created": true,
+		"username": p.Username, "path": path, "mode": mode, "created": true, "ownership": ownership,
 	})
 	_ = r.deps.WAL.Append(entry)
-	return mkdirResult{Path: path, Created: true}, auditQueued(entry), nil
+	return mkdirResult{Path: path, Created: true, Ownership: ownership}, auditQueued(entry), nil
 }
 
 // chownToUser hands a path to the account's uid/gid.
@@ -132,6 +130,32 @@ func chownToUser(path, username string) error {
 		}
 	}
 	return nil
+}
+
+// chownToUserBestEffort is the ownership policy for panel-created files in
+// filesystem.write/mkdir: on a root agent (production) ownership is mandatory
+// — a root-owned docroot/file the account cannot write is fail-open, so any
+// miss fails loudly. On an unprivileged agent (dev rigs, CI) ownership is
+// structurally impossible, so it is SKIPPED WITH A REPORTED REASON — the
+// same honesty contract as the nginx health check.
+func chownToUserBestEffort(path, username string) (ownership string, err error) {
+	uid, gid, ok := lookupUser(username)
+	if !ok {
+		if os.Geteuid() == 0 {
+			return "", &rpc.RPCError{Code: rpc.CodePrecondition, Message: "account does not exist"}
+		}
+		return "skipped: user lookup unavailable (not running as root)", nil
+	}
+	if err := os.Chown(path, uid, gid); err != nil {
+		if os.Geteuid() != 0 {
+			return "skipped: chown requires root (not running as root)", nil
+		}
+		return "", &rpc.RPCError{
+			Code:    rpc.CodeInternalError,
+			Message: fmt.Sprintf("chown %s failed: %v", filepath.Base(path), err),
+		}
+	}
+	return "account-owned", nil
 }
 
 // safePathSummary collapses user-controlled paths for audit metadata.

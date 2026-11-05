@@ -55,8 +55,16 @@ func NewRegistry(deps Deps) *Registry {
 	// isolation.* (§4.2) — M0: cgroup v2 slice provisioning only
 	r.m["isolation.provision"] = r.isolationProvision
 
-	// filesystem.* (§4.3) — P3: metadata ops (content ops land with ADR-0008)
+	// filesystem.* (§4.3 + ADR-0008 content-ops amendment) — P3
 	r.m["filesystem.mkdir"] = r.filesystemMkdir
+	r.m["filesystem.list"] = r.filesystemList
+	r.m["filesystem.read"] = r.filesystemRead
+	r.m["filesystem.write"] = r.filesystemWrite
+	r.m["filesystem.move"] = r.filesystemMove
+	r.m["filesystem.delete"] = r.filesystemDelete
+	r.m["filesystem.chmod"] = r.filesystemChmod
+	r.m["filesystem.usage"] = r.filesystemUsage
+	r.m["filesystem.trash_purge"] = r.trashPurge
 
 	// nginx.* (§4.7) — P3: vhost lifecycle via the config-apply primitive
 	r.m["nginx.test"] = r.nginxTest
@@ -81,7 +89,8 @@ func (r *Registry) Lookup(method string) (rpc.Handler, bool) {
 // unreachable (spec §6: *.status, *.list, *.usage, *.health stay available).
 func (r *Registry) IsReadOnly(method string) bool {
 	switch method {
-	case "account.usage", "account.list", "system.health", "system.info":
+	case "account.usage", "account.list", "system.health", "system.info",
+		"filesystem.list", "filesystem.read", "filesystem.usage":
 		return true
 	}
 	return false
