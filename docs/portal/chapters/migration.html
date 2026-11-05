@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Migrations · NexusPanel Docs</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="portal">
+  <aside>
+    <div class="brand">NexusPanel Docs</div>
+    <div class="tag">v0.5.0 · P6</div>
+    <div class="group">Admin guide</div>
+    <nav>
+      <a href="accounts.html">Accounts &amp; packages</a>
+      <a href="sites.html">Sites &amp; domains</a>
+      <a href="apps-and-git.html">Apps &amp; git deploys</a>
+      <a href="files.html">Files, FTP &amp; SSH</a>
+      <a href="dns.html">DNS zones</a>
+      <a href="email.html">Email</a>
+      <a href="databases.html">Databases</a>
+      <a href="backups.html">Backups &amp; restore</a>
+      <a href="firewall.html">Firewall &amp; bans</a>
+      <a href="threat-protection.html">Threat protection</a>
+      <a href="automation.html">Jobs, webhooks &amp; notifications</a>
+      <a class="active" href="migration.html">Migrations (cPanel)</a>
+      <a href="ssl.html">SSL certificates</a>
+    </nav>
+    <div class="back"><a href="../index.html">← Documentation home</a></div>
+  </aside>
+  <main>
+    <h1>Migrations — bring a cPanel account over</h1>
+    <p class="lede">
+      Move a hosting account from cPanel to NexusPanel from one backup file.
+      You give the panel the archive (<code>cpmove-user.tar.gz</code> or a
+      full-account backup) and the account it should move into; the panel
+      looks inside, shows you exactly what it found, and moves everything
+      with a byte-for-byte check on every single item. Nothing is guessed,
+      nothing is half-done: if anything fails its check, the migration says
+      <strong>failed</strong> and shows you precisely what and why.
+    </p>
+
+    <img class="screenshot" src="../static/screenshots/p4/30-migrations.png"
+         alt="Migration wizard: pick a cPanel archive from the shelf, pick the target account, and the four plain steps">
+
+    <h2>The four steps <span class="badge ok">live in the panel</span></h2>
+    <p>
+      <strong>1. Look inside.</strong> Pick the archive from the migration
+      shelf and the account it moves into, then press <em>Look inside the
+      archive</em>. The panel reads the archive without touching your live
+      files and lists what it found: website files, DNS zones, email
+      domains and mailboxes, databases, SSL certificates and scheduled
+      tasks — with sizes and fingerprints.
+    </p>
+    <p>
+      <strong>2. Show the plan.</strong> One button renders the exact move
+      order — files first, then DNS, email, databases, the rest — with
+      where each item will land. Nothing has moved yet; the plan also shows
+      anything that will be <em>skipped on purpose</em> (for example an SSL
+      certificate, which v1.0 verifies but does not install — see the
+      honest list below).
+    </p>
+    <p>
+      <strong>3. Move everything now.</strong> The panel executes the plan.
+      A move that is interrupted — the server restarted, the connection
+      dropped — simply continues where it stopped the next time you press
+      the button; finished items are never imported twice. Each item's
+      progress appears in the table as it happens.
+    </p>
+    <p>
+      <strong>4. The report.</strong> Every item gets a verdict:
+      <span class="badge ok">verified</span> means it was checked
+      byte-for-byte against the archive, <em>created</em> means it was
+      rebuilt fresh (mailboxes and databases — see passwords below),
+      <em>skipped</em> always names its reason, and <em>failed</em> shows
+      the checksum it expected next to the one it got. The report also
+      produces your <strong>domain switch plan</strong>: which DNS records
+      to point where, and how to roll back.
+    </p>
+
+    <h2>Passwords are never copied — and that is a feature</h2>
+    <img class="screenshot" src="../static/screenshots/p4/31-migrations-report.png"
+         alt="Opened migration: per-item verdicts (verified byte-for-byte, created fresh, skipped with a reason) with plain-language notes">
+    <p>
+      Old hosting archives contain password <em>hashes</em>, some of them
+      years old. Copying them would copy their weaknesses too. So the
+      migration creates every mailbox and database user with a
+      <strong>fresh password</strong> that nobody sees — not even the panel
+      stores it in a readable form. After the move, reset each mailbox
+      password in <a href="email.html">Email</a> and your database
+      credentials in <a href="databases.html">Databases</a>, then update
+      your site's configuration file with the new database password (the
+      connection details page shows you where).
+    </p>
+
+    <h2>Switching your domain over</h2>
+    <img class="screenshot" src="../static/screenshots/p4/32-migrations-cutover.png"
+         alt="Verification report with checksum pairs and the Switch your domain over cutover plan table">
+    <p>
+      The report's cutover section lists the DNS records for the zones it
+      moved, with the honest rule of thumb: lower your TTL at least one
+      TTL <em>before</em> the switch, then point the records at this
+      server. The records live in <a href="dns.html">DNS zones</a> the
+      moment the migration finishes — the switch itself is your move (an
+      automated push to third-party DNS providers is a later feature), and
+      the report reminds you to keep an export of the old records as your
+      rollback.
+    </p>
+
+    <h2>What the panel does not do (honest list)</h2>
+    <ul>
+      <li>SSL certificates are verified and reported, but v1.0 does not
+        install them into the certificate store — re-issue them free with
+        <a href="ssl.html">SSL certificates</a> after the move.</li>
+      <li>Scheduled tasks (cron) are carried over as data you can read in
+        the report; wiring them to run is the
+        <a href="automation.html">job center's</a> business — add each job
+        there.</li>
+      <li>Sources other than cPanel (Plesk, DirectAdmin) and live pulls
+        from a running cPanel server need credentials on the old box and
+        are not in v1.0 — the file-based path here needs only the archive.</li>
+      <li>Reseller account trees and mailing-list contents are not moved.</li>
+    </ul>
+  </main>
+</div>
+</body>
+</html>

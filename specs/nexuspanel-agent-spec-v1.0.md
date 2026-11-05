@@ -249,6 +249,28 @@ B10 amendment notes:
 | `system.update_panel` | `manifest_url, expected_sha256` |
 | `system.drift_check_all` | — |
 
+### 4.16 `migration.*` (amended at B15 — ADR-0020, cPanel cpmove import)
+
+Artifacts are confined to the migration staging root
+(`/var/lib/nexuspanel-agent/migrations`; basename references only, no
+separators, no `..`, symlink-refusing, 100 GiB cap). Analyze is a
+streaming read-only walk — it NEVER extracts to the live tree.
+Extraction targets are account-confined; trees are extracted with
+`--no-same-owner` and chowned to the account user. Dump imports provision
+a FRESH database/user with caller-supplied (panel-generated) credentials
+streamed via stdin — artifact credentials are never read, parsed or
+reused (§6 discipline). `list_artifacts` / `analyze` / `hash_tree` are in
+the read-only set.
+
+| Method | Params |
+|---|---|
+| `migration.list_artifacts` | — (shelf listing with per-file sha256) |
+| `migration.analyze` | `artifact` (inventory: files, dns zones, mail, databases, ssl, cron + artifact sha256) |
+| `migration.extract_tree` | `artifact, prefix, username, target_rel, allow_overwrite` (returns per-file sha256 manifest) |
+| `migration.extract_member` | `artifact, member` (inline content for small members: zones, certs, crons; 2 MiB cap) |
+| `migration.hash_tree` | `username, target_rel` (verify pass re-hash) |
+| `migration.import_database` | `artifact, member, db_name, db_user, db_password, db_host` (fresh DB + user + grant; dump via stdin; per-table row estimates) |
+
 ## 5. Handshake and Key Management
 
 - Installation generates: CA keypair, control-plane signing keypair (Ed25519), agent client certificate.

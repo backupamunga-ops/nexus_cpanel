@@ -600,6 +600,29 @@ with a fingerprint (ADR-0009/0015 discipline).
 | GET | `/migrations/{id}/report` | jwt | `migration:read` |
 | POST | `/migrations/{id}/cancel` | jwt | `migration:execute` |
 
+The migration surface is **live at B15 (ADR-0020)** for cPanel `cpmove-*`
+sources, with two additions to the pre-declared catalog:
+
+| Method | Path | Auth | Permission |
+|---|---|---|---|
+| GET | `/migrations/artifacts` | jwt | `migration:list` |
+| DELETE | `/migrations/{id}` | jwt | `migration:delete` |
+
+`GET /migrations/artifacts` lists the agent's migration shelf (name,
+size, sha256 recorded on sight) — the wizard needs the shelf before a job
+exists. `DELETE` removes a **terminal** migration record (completed /
+failed / canceled) for housekeeping; non-terminal jobs are refused —
+cancel first. Create pins the artifact identity (sha256 recorded BEFORE
+anything else), runs the read-only analyze (inventory + collision
+preflight), and the ledger (`migration_jobs` / `migration_entity_mappings`)
+is the phase machine: dry-run is zero-writes, execute is resumable, and a
+job with ANY failed verification reports `failed` overall (M15/D-11).
+Zones, mail and databases import through the same panel services the
+panels use (DnsService / MailService / B09 database flow) — no side
+doors. Credentials inside the artifact are never imported: mailboxes and
+DB users get fresh secrets (SecretBox at rest, ADR-0009); SSL keys are
+not imported in v1.0 (explicit reason-coded skip).
+
 ### 4.22 Webhooks — `/api/v1/webhooks`
 
 | Method | Path | Auth | Permission |

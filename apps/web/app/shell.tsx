@@ -37,6 +37,7 @@ const NAV_GROUPS: Array<{
     label: 'Server',
     items: [
       { href: '/backups', label: 'Backups', icon: 'history' },
+      { href: '/migrations', label: 'Migrations', icon: 'truck', adminOnly: true },
       { href: '/firewall', label: 'Firewall', icon: 'shield' },
       { href: '/waf', label: 'Threat protection', icon: 'alert' },
       { href: '/settings', label: 'Security', icon: 'lock' },

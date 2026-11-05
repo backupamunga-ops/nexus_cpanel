@@ -147,6 +147,25 @@ if (EMAIL && PASSWORD) {
   await page.waitForTimeout(400);
   await shot('29-apps-git.png');
 
+  // B15: migration wizard (shelf → steps → report) + the move list.
+  await go('/migrations', 900);
+  await shot('30-migrations.png');
+  // Open the first (seeded, completed) migration: the per-entity verdict
+  // table is the manual's money shot; then the verification report.
+  try {
+    await page.locator('button:has-text("Open")').first().click({ timeout: 4000 });
+    await page.waitForTimeout(900);
+    await shot('31-migrations-report.png');
+    await page.locator('button:has-text("Report")').first().click({ timeout: 4000 });
+    await page.waitForTimeout(1100);
+    // the report renders below the fold — bring the cutover section into view
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(600);
+    await shot('32-migrations-cutover.png');
+  } catch {
+    console.log('⚠ migrations detail shots skipped (no migration rows?)');
+  }
+
   await go('/jobs', 900);
   await shot('24-jobs.png');
 

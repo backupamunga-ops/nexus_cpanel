@@ -60,6 +60,7 @@ type Deps struct {
         QuarantineRoot       string // malware.* quarantine root (/var/quarantine/nexuspanel)
         WpBinary             string // apps.* wp-cli path; empty = LookPath wp (tests inject a fake)
         GitBinary            string // git.* binary path; empty = LookPath git (tests inject a fake)
+        MigrationRoot        string // migration.* artifact staging root (/var/lib/nexuspanel-agent/migrations)
 }
 
 // Registry maps method names to handlers.
@@ -229,6 +230,17 @@ func NewRegistry(deps Deps) *Registry {
         r.m["git.deploy_history"] = r.gitDeployHistory
         r.m["git.rollback"] = r.gitRollback
 
+        // migration.* (ADR-0020 amendment to §4) — B15: migration center. The
+        // agent reads/extracts the cPanel artifact; the panel owns the ledger
+        // and the phase machine. Artifacts are confined to the migration root;
+        // analyze is read-only; credentials are never imported (spec §6).
+        r.m["migration.list_artifacts"] = r.migrationListArtifacts
+        r.m["migration.analyze"] = r.migrationAnalyze
+        r.m["migration.extract_tree"] = r.migrationExtractTree
+        r.m["migration.extract_member"] = r.migrationExtractMember
+        r.m["migration.hash_tree"] = r.migrationHashTree
+        r.m["migration.import_database"] = r.migrationImportDatabase
+
         // system.* (§4.15) — M0 subset
         r.m["system.health"] = r.systemHealth
         r.m["system.info"] = r.systemInfo
@@ -253,7 +265,8 @@ func (r *Registry) IsReadOnly(method string) bool {
                 "dns.axfr_export", "dns.zone_check", "dns.get_dnssec",
                 "mail.queue_list", "database.size",
                 "firewall.status", "fail2ban.jails",
-                "malware.quarantine_list", "git.deploy_history":
+                "malware.quarantine_list", "git.deploy_history",
+                "migration.list_artifacts", "migration.analyze", "migration.hash_tree":
                 return true
         }
         return false

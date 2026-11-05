@@ -48,6 +48,10 @@ type DatabaseEngineAdapter interface {
         Grant(user, database, host string) error
         Revoke(user, database, host string) error
         SizeBytes(name string) (int64, error)
+        // B15 migration.*: restore a dump file into an existing database and
+        // read per-table row estimates for the verification report.
+        ImportFile(database, path string) (string, error)
+        TableStats(database string) (map[string]int64, error)
 }
 
 // mariadbAdapter shells out to the injected/looked-up MariaDB clients.
@@ -95,6 +99,49 @@ func (a *mariadbAdapter) Grant(user, database, host string) error {
 
 func (a *mariadbAdapter) Revoke(user, database, host string) error {
         return a.sql(fmt.Sprintf("REVOKE ALL PRIVILEGES ON `%s`.* FROM `%s`@`%s`;\nFLUSH PRIVILEGES;\n", database, user, host))
+}
+
+// ImportFile restores a dump file into an existing database (B15
+// migration.*). The dump streams via stdin — never argv.
+func (a *mariadbAdapter) ImportFile(database, path string) (string, error) {
+        f, err := os.Open(path)
+        if err != nil {
+                return "", fmt.Errorf("dump open: %w", err)
+        }
+        defer f.Close()
+        cmd := exec.Command(a.client, database)
+        cmd.Env = a.env
+        cmd.Stdin = f
+        out, err := cmd.CombinedOutput()
+        if err != nil {
+                return string(out), fmt.Errorf("mariadb import: %s", firstDbErr(string(out), err))
+        }
+        return string(out), nil
+}
+
+// TableStats reads per-table row estimates for the verification report
+// (information_schema row counts — honest estimates, labeled as such).
+func (a *mariadbAdapter) TableStats(database string) (map[string]int64, error) {
+        cmd := exec.Command(a.client, "--batch", "--skip-column-names")
+        cmd.Env = a.env
+        cmd.Stdin = strings.NewReader(fmt.Sprintf(
+                "SELECT table_name, COALESCE(table_rows, 0) FROM information_schema.tables WHERE table_schema = '%s';\n", sqlEscape(database)))
+        out, err := cmd.CombinedOutput()
+        if err != nil {
+                return nil, fmt.Errorf("mariadb table stats: %s", firstDbErr(string(out), err))
+        }
+        stats := map[string]int64{}
+        for _, line := range strings.Split(string(out), "\n") {
+                parts := strings.Split(strings.TrimRight(line, "\r"), "\t")
+                if len(parts) != 2 {
+                        continue
+                }
+                var n int64
+                if _, err := fmt.Sscanf(parts[1], "%d", &n); err == nil {
+                        stats[parts[0]] = n
+                }
+        }
+        return stats, nil
 }
 
 func (a *mariadbAdapter) SizeBytes(name string) (int64, error) {

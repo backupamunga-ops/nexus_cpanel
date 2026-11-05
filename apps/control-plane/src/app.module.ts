@@ -19,6 +19,7 @@ import { JobsModule } from './jobs/jobs.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AppsModule } from './apps/apps.module';
+import { MigrationsModule } from './migrations/migrations.module';
 import { SslModule } from './ssl/ssl.module';
 import { PhpModule } from './php/php.module';
 import { ConfigModule } from './config/config.module';
@@ -51,6 +52,7 @@ import { PrismaModule } from './prisma/prisma.module';
     WebhooksModule,
     NotificationsModule,
     AppsModule,
+    MigrationsModule,
     SslModule,
     PhpModule,
     ConfigModule,

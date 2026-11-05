@@ -78,6 +78,12 @@ export const WEB_KNOWN_PERMISSIONS: readonly string[] = [
   'mail:read',
   'mail:relay:manage',
   'mail:update',
+  'migration:analyze', // B15 (ADR-0020) — server-wide family, not hosting-scoped
+  'migration:create',
+  'migration:delete',
+  'migration:execute',
+  'migration:list',
+  'migration:read',
   'notification:manage',
   'notification:read',
   'package:create',

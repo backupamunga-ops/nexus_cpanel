@@ -1276,6 +1276,141 @@ export class AgentClientService {
     return r.result;
   }
 
+  // ---- migration.* (agent spec §4 amendment, ADR-0020) — B15 ---------------
+  //
+  // cpmove import: the agent reads/extracts the artifact; the panel owns the
+  // ledger and the phase machine. The read-only trio (list/analyze/hash_tree)
+  // is explicitly whitelisted in the agent's read-only set.
+
+  async migrationListArtifacts(): Promise<{
+    root: string;
+    artifacts: Array<{ name: string; size_bytes: number; sha256: string }>;
+  }> {
+    const r = await this.call<{
+      root: string;
+      artifacts: Array<{ name: string; size_bytes: number; sha256: string }>;
+    }>('migration.list_artifacts', {});
+    return r.result;
+  }
+
+  async migrationAnalyze(artifact: string): Promise<{
+    artifact: string;
+    size_bytes: number;
+    sha256: string;
+    prefix: string;
+    entry_count: number;
+    entities: Array<{
+      type: string;
+      source_id: string;
+      size_bytes?: number;
+      sha256?: string;
+      count?: number;
+      notes?: string;
+    }>;
+  }> {
+    const r = await this.call<{
+      artifact: string;
+      size_bytes: number;
+      sha256: string;
+      prefix: string;
+      entry_count: number;
+      entities: Array<{
+        type: string;
+        source_id: string;
+        size_bytes?: number;
+        sha256?: string;
+        count?: number;
+        notes?: string;
+      }>;
+    }>('migration.analyze', { artifact });
+    return r.result;
+  }
+
+  async migrationExtractTree(params: {
+    artifact: string;
+    prefix: string;
+    username: string;
+    target_rel: string;
+    allow_overwrite?: boolean;
+  }): Promise<{
+    target: string;
+    files: number;
+    bytes: number;
+    tree_sha256: string;
+    entries: Array<{ path: string; size_bytes: number; sha256: string }>;
+    truncated: boolean;
+  }> {
+    const r = await this.call<{
+      target: string;
+      files: number;
+      bytes: number;
+      tree_sha256: string;
+      entries: Array<{ path: string; size_bytes: number; sha256: string }>;
+      truncated: boolean;
+    }>('migration.extract_tree', params as unknown as Record<string, unknown>);
+    return r.result;
+  }
+
+  async migrationExtractMember(params: {
+    artifact: string;
+    member: string;
+  }): Promise<{ member: string; sha256: string; size_bytes: number; content_b64?: string; too_large?: boolean }> {
+    const r = await this.call<{
+      member: string;
+      sha256: string;
+      size_bytes: number;
+      content_b64?: string;
+      too_large?: boolean;
+    }>('migration.extract_member', params);
+    return r.result;
+  }
+
+  async migrationHashTree(params: {
+    username: string;
+    target_rel: string;
+  }): Promise<{
+    target: string;
+    files: number;
+    bytes: number;
+    tree_sha256: string;
+    entries: Array<{ path: string; size_bytes: number; sha256: string }>;
+    truncated: boolean;
+  }> {
+    const r = await this.call<{
+      target: string;
+      files: number;
+      bytes: number;
+      tree_sha256: string;
+      entries: Array<{ path: string; size_bytes: number; sha256: string }>;
+      truncated: boolean;
+    }>('migration.hash_tree', params);
+    return r.result;
+  }
+
+  async migrationImportDatabase(params: {
+    artifact: string;
+    member: string;
+    db_name: string;
+    db_user: string;
+    db_password: string;
+    db_host?: string;
+  }): Promise<{
+    db_name: string;
+    dump_sha256: string;
+    dump_bytes: number;
+    table_rows: Record<string, number>;
+    log: string;
+  }> {
+    const r = await this.call<{
+      db_name: string;
+      dump_sha256: string;
+      dump_bytes: number;
+      table_rows: Record<string, number>;
+      log: string;
+    }>('migration.import_database', params);
+    return r.result;
+  }
+
   /** Exposed for tests: the exact bytes that were signed. */
   static signatureInput(
     method: string,
