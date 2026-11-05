@@ -125,16 +125,32 @@
       history and ships with the config-engine milestone.
     </p>
 
+    <h2>Site logs <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Every vhost the panel renders now emits per-domain
+      <code>access_log</code> and <code>error_log</code> directives pointing
+      into the account's own home — <code>/home/&lt;user&gt;/logs/&lt;domain&gt;.access.log</code>
+      and <code>.error.log</code>. The site detail screen has a
+      <strong>Logs</strong> card that tails either log (100–1000 lines)
+      through the agent's confined file-read path, so the viewer inherits the
+      same 10 MiB cap and path confinement as the file manager.
+    </p>
+    <ul>
+      <li>A missing log file is shown honestly as <em>“no log yet”</em> —
+        the file appears after the first request following a vhost apply.</li>
+      <li>Sites created before per-site logging receive their log directives
+        on the next vhost re-apply — any site edit triggers one.</li>
+      <li>Log rotation is not configured yet (a runbook item until the
+        logrotate milestone).</li>
+    </ul>
+
     <h2>What is not live yet</h2>
     <ul>
-      <li><strong>PHP-FPM pools</strong> — the site stores its PHP version
-        choice today (validated against the account's package); the actual
-        per-site pool provisioning lands with the PHP milestone.</li>
-      <li><strong>SSL</strong> — certificate issuance and per-site HTTPS are
-        separate milestones; the <a href="ssl.html">SSL chapter</a> follows
-        the same pipeline once live.</li>
-      <li><strong>Site logs, staging clones and git deployments</strong> —
-        later phases (P3 continues, P6).</li>
+      <li><strong>FTP accounts</strong> — deferred until the <code>ftp.*</code>
+        agent category lands (see the <a href="files.html">files chapter</a>
+        for what the file manager covers today).</li>
+      <li><strong>Staging clones and git deployments</strong> — later phases
+        (P6).</li>
     </ul>
 
     <div class="pager">
