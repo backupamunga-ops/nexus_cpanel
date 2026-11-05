@@ -167,14 +167,48 @@ function run(root) {
       }
     }
   }
+
+  // Web vocabulary drift guard: the tokens screen renders scope checkboxes
+  // from apps/web/lib/permissions.ts; a stale mirror would offer scopes the
+  // server rejects (or hide scopes it accepts). Same-name array works because
+  // WEB_KNOWN_PERMISSIONS contains KNOWN_PERMISSIONS as a substring.
+  const webVocabPath = join(process.cwd(), '..', 'web', 'lib', 'permissions.ts');
+  let webVocabulary = null;
+  try {
+    webVocabulary = extractVocabulary(readFileSync(webVocabPath, 'utf8'));
+  } catch {
+    violations.push(`web vocabulary file not found at ${webVocabPath} — refusing to pass vacuously`);
+  }
+  if (webVocabulary) {
+    const drift = diffVocabularies(vocabulary, webVocabulary);
+    for (const d of drift) {
+      violations.push(`web/lib/permissions.ts: ${d}`);
+    }
+  }
+
   if (violations.length > 0) {
     console.error(`permissions:check: ${violations.length} violation(s):`);
     for (const v of violations) console.error('  ✗ ' + v);
     process.exit(1);
   }
   console.log(
-    `permissions:check: ${files.length} controller(s), every route decorated, all permissions in vocabulary ✓`,
+    `permissions:check: ${files.length} controller(s), every route decorated, all permissions in vocabulary, web mirror in sync ✓`,
   );
+}
+
+/**
+ * Set difference between server and web vocabularies, as human-readable
+ * drift lines (empty = in lockstep).
+ */
+export function diffVocabularies(server, web) {
+  const out = [];
+  for (const p of server) {
+    if (!web.includes(p)) out.push(`'${p}' is in KNOWN_PERMISSIONS but missing from the web mirror`);
+  }
+  for (const p of web) {
+    if (!server.includes(p)) out.push(`'${p}' exists only in the web mirror — not a real permission`);
+  }
+  return out;
 }
 
 function selfTest() {
@@ -236,6 +270,17 @@ export class PartialController {
   );
   if (unknown.length !== 1 || unknown[0] !== 'demo:typo') {
     console.error('self-test FAILED: unknown-permission detection broken');
+    process.exit(1);
+  }
+  const drift1 = diffVocabularies(['a:b', 'c:d'], ['a:b', 'c:d']);
+  const drift2 = diffVocabularies(['a:b', 'c:d'], ['a:b']);
+  const drift3 = diffVocabularies(['a:b'], ['a:b', 'x:y']);
+  if (
+    drift1.length !== 0 ||
+    drift2.length !== 1 || !drift2[0].includes("'c:d'") ||
+    drift3.length !== 1 || !drift3[0].includes("'x:y'")
+  ) {
+    console.error('self-test FAILED: web vocabulary drift detection broken');
     process.exit(1);
   }
   console.log('permissions:check self-test ✓');

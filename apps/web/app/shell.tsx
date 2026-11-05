@@ -9,6 +9,7 @@ const NAV = [
   { href: '/accounts', label: 'Accounts' },
   { href: '/sessions', label: 'Sessions' },
   { href: '/settings', label: 'Security' },
+  { href: '/tokens', label: 'API tokens' },
 ];
 
 /**
