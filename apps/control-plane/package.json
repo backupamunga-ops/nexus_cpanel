@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "jest",
     "keys:generate": "node scripts/generate-dev-keys.mjs",
+    "permissions:check": "node scripts/check-permissions.mjs --self-test && node scripts/check-permissions.mjs src",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate"
   },

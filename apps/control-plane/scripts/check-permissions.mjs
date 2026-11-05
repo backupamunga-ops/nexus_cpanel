@@ -1,0 +1,192 @@
+#!/usr/bin/env node
+/**
+ * C6 permission-coverage check (master spec §11.3, security control C6):
+ * "CI check that every controller method has a permission decorator."
+ *
+ * Scans every *.controller.ts (excluding *.spec.ts) under the given root and
+ * asserts that each HTTP-route method declares @RequirePermission(...) or
+ * @Public(). A route without either fails the build — fail-closed by
+ * construction, mirroring the runtime PermissionsGuard.
+ *
+ * Usage:
+ *   node scripts/check-permissions.mjs <src-root>
+ *   node scripts/check-permissions.mjs --self-test     (embedded fixtures)
+ *
+ * Round-1 scope: single-file regex/line analysis of decorator blocks;
+ * decorator arguments containing parentheses inside strings are not
+ * expected in this codebase and would need a real AST (P3, if controllers
+ * grow complex decorator payloads).
+ */
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+
+const HTTP_DECORATOR = /^@\b(Get|Post|Patch|Put|Delete|Head|Options|All)\b/;
+const METHOD_LINE = /^\s*(?:private\s+|protected\s+|public\s+)?(?:async\s+)?[A-Za-z_$][\w$]*\s*\(/;
+
+/** Strips block and line comments (string-literal-unaware, fine for TS controllers here). */
+function stripComments(src) {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+}
+
+/** Returns violation strings for one controller file's source. */
+/** Detects class-level @Public/@RequirePermission (applies to every route). */
+function classCoverage(lines, classLineIdx) {
+  const block = [];
+  let j = classLineIdx - 1;
+  let blanks = 0;
+  while (j >= 0) {
+    const t = lines[j].trim();
+    if (t === '') {
+      blanks += 1;
+      if (blanks > 2) break;
+      j -= 1;
+      continue;
+    }
+    if (t.startsWith('@')) {
+      block.push(t);
+      blanks = 0;
+      j -= 1;
+      continue;
+    }
+    break;
+  }
+  const text = block.join('\n');
+  if (/@Public\b/.test(text)) return 'public';
+  if (/@RequirePermission\b/.test(text)) return 'permission';
+  return null;
+}
+
+export function checkSource(src, label) {
+  const violations = [];
+  const lines = stripComments(src).split('\n');
+  const classLineIdx = lines.findIndex((l) => /^\s*export\s+(?:abstract\s+)?class\b/.test(l));
+  const coveredByClass = classLineIdx >= 0 ? classCoverage(lines, classLineIdx) : null;
+  let i = 0;
+  while (i < lines.length) {
+    if (!HTTP_DECORATOR.test(lines[i].trim())) {
+      i += 1;
+      continue;
+    }
+    // Decorator block = decorators ABOVE the HTTP decorator (e.g. @Public,
+    // @UseGuards — stopped by the previous method's signature/body) plus the
+    // HTTP decorator plus decorators BELOW it, up to the method signature.
+    const block = [lines[i]];
+    const collect = (from, step) => {
+      let j = from;
+      let blanks = 0;
+      while (j >= 0 && j < lines.length) {
+        const t = lines[j].trim();
+        if (t === '') {
+          blanks += 1;
+          if (blanks > 2) break;
+          j += step;
+          continue;
+        }
+        if (t.startsWith('@')) {
+          block.push(lines[j]);
+          blanks = 0;
+          j += step;
+          continue;
+        }
+        break;
+      }
+      return j;
+    };
+    collect(i - 1, -1);
+    const j = collect(i + 1, +1);
+    const blockText = block.join('\n');
+    const hasOwn = /@RequirePermission\b/.test(blockText) || /@Public\b/.test(blockText);
+    if (!hasOwn && coveredByClass === null) {
+      const name = (lines[j] ?? '').trim().slice(0, 60) || '<eof>';
+      violations.push(`${label}: route ${block[0].trim()} on "${name}" lacks @RequirePermission/@Public`);
+    }
+    i = j;
+  }
+  return violations;
+}
+
+function listControllerFiles(root) {
+  const out = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir)) {
+      const p = join(dir, entry);
+      const s = statSync(p);
+      if (s.isDirectory()) walk(p);
+      else if (entry.endsWith('.controller.ts') && !entry.endsWith('.spec.ts')) out.push(p);
+    }
+  };
+  walk(root);
+  return out;
+}
+
+function run(root) {
+  const files = listControllerFiles(root);
+  if (files.length === 0) {
+    console.error(`permissions:check: no *.controller.ts found under ${root} — refusing to pass vacuously`);
+    process.exit(1);
+  }
+  const violations = [];
+  for (const file of files) {
+    violations.push(...checkSource(readFileSync(file, 'utf8'), file.replace(`${root}/`, '')));
+  }
+  if (violations.length > 0) {
+    console.error(`permissions:check: ${violations.length} undecorated route(s):`);
+    for (const v of violations) console.error('  ✗ ' + v);
+    process.exit(1);
+  }
+  console.log(`permissions:check: ${files.length} controller(s), every route decorated ✓`);
+}
+
+function selfTest() {
+  const good = `
+@Controller('demo')
+export class DemoController {
+  @Get()
+  @RequirePermission('demo:list')
+  async list() {}
+
+  @Public()
+  @Get('open')
+  async open() {}
+
+  @Post()
+  @HttpCode(204)
+  @RequirePermission('demo:create')
+  async create() {}
+}`;
+  const bad = `
+@Controller('demo')
+export class BadController {
+  @Get()
+  async undecorated() {}
+}`;
+  const partial = `
+@Controller('demo')
+export class PartialController {
+  @Get()
+  @RequirePermission('demo:list')
+  async list() {}
+
+  @Delete(':id')
+  async delete(@Param('id') id: string) {}
+}`;
+  if (checkSource(good, 'good').length !== 0) {
+    console.error('self-test FAILED: good fixture flagged');
+    process.exit(1);
+  }
+  if (checkSource(bad, 'bad').length !== 1 || checkSource(partial, 'partial').length !== 1) {
+    console.error('self-test FAILED: violating fixtures not caught');
+    process.exit(1);
+  }
+  console.log('permissions:check self-test ✓');
+}
+
+const arg = process.argv[2];
+if (arg === '--self-test') {
+  selfTest();
+} else if (arg) {
+  run(arg);
+} else {
+  console.error('usage: check-permissions.mjs <src-root> | --self-test');
+  process.exit(2);
+}

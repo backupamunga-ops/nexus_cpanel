@@ -19,8 +19,8 @@ export class AccountsController {
 
   @Get()
   @RequirePermission('account:list')
-  async list(): Promise<unknown> {
-    return this.accounts.list();
+  async list(@CurrentUser() user: AuthContext): Promise<unknown> {
+    return this.accounts.list(user);
   }
 
   @Get(':id')

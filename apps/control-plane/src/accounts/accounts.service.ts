@@ -40,9 +40,23 @@ export class AccountsService {
     @InjectAudit() private readonly audit: AuditAppender,
   ) {}
 
-  async list(): Promise<{ data: ManagedAccount[] }> {
+  /**
+   * Server Admins see every account; everyone else only the accounts they
+   * hold an active access row for (C7 — isolation starts at the listing).
+   */
+  async list(actor?: { userId?: string; isSuperAdmin?: boolean }): Promise<{ data: ManagedAccount[] }> {
+    const base = { deleted_at: null };
+    const where =
+      actor?.userId && !actor.isSuperAdmin
+        ? {
+            ...base,
+            user_hosting_account_access__hosting_account_id: {
+              some: { user_id: actor.userId, revoked_at: null },
+            },
+          }
+        : base;
     const rows = await this.prisma.hostingAccount.findMany({
-      where: { deleted_at: null },
+      where,
       orderBy: { created_at: 'desc' },
       take: 200,
     });

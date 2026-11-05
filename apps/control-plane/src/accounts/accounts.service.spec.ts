@@ -20,6 +20,7 @@ function fakeRow(overrides: Record<string, unknown> = {}) {
 
 async function makeService() {
   const rows: Record<string, Record<string, unknown>> = {};
+  const accessRows: Record<string, Set<string>> = {};
   let seq = 0;
   const prisma = {
     hostingAccount: {
@@ -32,9 +33,18 @@ async function makeService() {
         });
         return Promise.resolve(match ?? null);
       }),
-      findMany: jest.fn().mockImplementation(() =>
-        Promise.resolve(Object.values(rows).filter((r) => r.deleted_at === null)),
-      ),
+      findMany: jest.fn().mockImplementation(({ where }) => {
+        let out = Object.values(rows).filter((r) => r.deleted_at === null);
+        // Honor the C7 access-row filter exactly like Prisma would.
+        const scope =
+          (where as { user_hosting_account_access__hosting_account_id?: { some: { user_id: string; revoked_at: null } } })
+            ?.user_hosting_account_access__hosting_account_id?.some;
+        if (scope) {
+          const granted = accessRows[scope.user_id] ?? new Set<string>();
+          out = out.filter((r) => granted.has(r.id as string));
+        }
+        return Promise.resolve(out);
+      }),
       create: jest.fn().mockImplementation(({ data }) => {
         const row = fakeRow({ id: `01900000-0000-7000-8000-${String(++seq).padStart(12, '0')}`, ...data });
         rows[row.id as string] = row;
@@ -61,7 +71,7 @@ async function makeService() {
   };
   const audit = new InMemoryAuditService();
   const svc = new AccountsService(prisma as never, agent as never, audit);
-  return { svc, prisma, agent, audit, rows };
+  return { svc, prisma, agent, audit, rows, accessRows };
 }
 
 describe('AccountsService (M0 slice)', () => {
@@ -163,5 +173,24 @@ describe('AccountsService (M0 slice)', () => {
     expect(entry.operation).toBe('account.resume');
     expect(entry.outcome).toBe('failure');
     expect((await svc.get(account.id)).status).toBe('suspended');
+  });
+
+  it('C7: a non-admin lists only accounts they hold an active access row for', async () => {
+    const { svc, rows, accessRows } = await makeService();
+    const mine = await svc.create('alice', 'pkg-default');
+    const other = await svc.create('bob', 'pkg-default');
+
+    accessRows[ACTOR] = new Set([mine.id]);
+    // Sanity: the fake rows registry holds both accounts.
+    expect(Object.keys(rows)).toHaveLength(2);
+
+    const scoped = await svc.list({ userId: ACTOR });
+    expect(scoped.data.map((a) => a.id)).toEqual([mine.id]);
+
+    const admin = await svc.list({ userId: ACTOR, isSuperAdmin: true });
+    expect(admin.data.map((a) => a.id).sort()).toEqual([mine.id, other.id].sort());
+
+    const nobody = await svc.list({ userId: '01900000-0000-7000-8000-0000000000ff' });
+    expect(nobody.data).toEqual([]);
   });
 });

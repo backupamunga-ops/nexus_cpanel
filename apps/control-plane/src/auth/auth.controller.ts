@@ -1,6 +1,7 @@
 import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
 import { AuthService, LoginContext } from './auth.service';
 import { Public } from './public.decorator';
+import { RequirePermission } from '../common/permissions';
 import { AuthContext, AuthenticatedRequest, CurrentUser } from './request-context';
 
 /**
@@ -12,12 +13,16 @@ import { AuthContext, AuthenticatedRequest, CurrentUser } from './request-contex
  *
  * Request metadata (ip / user-agent / device fingerprint) is captured for
  * session binding — C3 binds refresh tokens to the device fingerprint.
+ *
+ * @Public() is METHOD-level here: login and refresh are unauthenticated by
+ * design, but logout must authenticate (it revokes the presenting session).
+ * A class-level @Public() previously leaked logout past the JWT gate.
  */
-@Public()
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
+  @Public()
   @Post('login')
   @HttpCode(200)
   async login(
@@ -27,6 +32,7 @@ export class AuthController {
     return this.auth.login(body.email ?? '', body.password ?? '', this.context(req, body));
   }
 
+  @Public()
   @Post('refresh')
   @HttpCode(200)
   async refresh(
@@ -37,6 +43,7 @@ export class AuthController {
   }
 
   /** Logout is authenticated: it revokes exactly the presenting session. */
+  @RequirePermission('auth:logout')
   @Post('logout')
   async logout(@CurrentUser() user: AuthContext): Promise<void> {
     await this.auth.logout(user.userId, user.sessionId);

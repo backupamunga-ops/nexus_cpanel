@@ -49,6 +49,8 @@ jobs:
       - run: npm ci
       - name: Generate Prisma client
         run: npm run prisma:generate --workspace apps/control-plane
+      - name: C6 permission coverage (every route decorated)
+        run: npm run permissions:check --workspace apps/control-plane
       - name: Typecheck
         run: npm run typecheck --workspace apps/control-plane
       - name: Unit tests
