@@ -138,6 +138,21 @@ if (EMAIL && PASSWORD) {
 
   await go('/waf', 900);
   await shot('23-waf.png');
+
+  await go('/jobs', 900);
+  await shot('24-jobs.png');
+
+  await go('/notifications', 900);
+  await shot('25-notifications.png');
+
+  await go('/audit', 900);
+  await shot('26-audit.png');
+  // Run the on-page chain verification so the shot shows the live verdict.
+  try {
+    await page.locator('button:has-text("Verify chain now")').first().click({ timeout: 3000 });
+    await page.waitForTimeout(1500);
+    await shot('27-audit-verify.png');
+  } catch { /* verify button not present (non-admin) — skip honestly */ }
   // With seeded rules + jails, the bans cards sit below the fold.
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await page.waitForTimeout(500);

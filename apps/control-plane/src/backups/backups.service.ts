@@ -475,6 +475,17 @@ export class BackupsService {
       data: { job_id: job.id, status: 'running', started_at: new Date() },
       include: { job: { select: { name: true } } },
     });
+    // Job-center mirror (B13): the run is visible in the jobs table.
+    const jobRow = await this.prisma.jobMetadata.create({
+      data: {
+        bullmq_job_id: `run_${run.id}`,
+        queue_name: 'backups',
+        job_type: 'backup.run',
+        status: 'active',
+        payload: { job_id: job.id, job_name: job.name, scope: job.scope } as object,
+        attempts: 1,
+      },
+    });
     try {
       const res = await this.agent.backupCreate({
         scope: job.scope,
@@ -510,12 +521,20 @@ export class BackupsService {
       await this.applyRetention(actor, job.id).catch((e) =>
         this.logger.warn(`retention pass for job ${job.name} failed: ${(e as Error).message}`),
       );
+      await this.prisma.jobMetadata.update({
+        where: { id: jobRow.id },
+        data: { status: 'completed', progress: 100, result: { run_id: run.id } as object, completed_at: new Date() },
+      });
       return runToDto(updated);
     } catch (e) {
       const failed = await this.prisma.backupRun.update({
         where: { id: run.id },
         data: { status: 'failed', completed_at: new Date(), error_message: (e as Error).message },
         include: { job: { select: { name: true } } },
+      });
+      await this.prisma.jobMetadata.update({
+        where: { id: jobRow.id },
+        data: { status: 'failed', result: { error: (e as Error).message, run_id: run.id } as object, completed_at: new Date() },
       });
       await this.audit.append({
         operation: 'backup.run.failure',

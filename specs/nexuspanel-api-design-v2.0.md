@@ -570,14 +570,23 @@ with a fingerprint (ADR-0009/0015 discipline).
 | PATCH | `/webhooks/{id}` | jwt | `webhook:update` |
 | DELETE | `/webhooks/{id}` | jwt | `webhook:delete` |
 | GET | `/webhooks/{id}/deliveries` | jwt | `webhook:read` |
+| POST | `/webhooks/{id}/test` | jwt | `webhook:update` |
+| POST | `/webhooks/{id}/deliveries/{did}/redrive` | jwt | `webhook:update` |
+
+Live at B13 (ADR-0018): deliveries POST `{event, occurred_at, data}` with
+`X-Nexus-Signature: sha256=HMAC(secret, timestamp + '.' + body)` and
+`X-Nexus-Timestamp`; failed deliveries retry with exponential backoff
+(30 s · 2^(n−1), cap 1 h) up to five attempts, then dead-letter (admins
+notified in-app). Redrive re-arms a dead delivery; `test` sends a signed
+ping. Secrets are SecretBox envelopes (ADR-0009) and never returned.
 
 ### 4.23 Notifications — `/api/v1/notifications`
 
 | Method | Path | Auth | Permission |
 |---|---|---|---|
-| GET | `/notifications` | jwt | — (own) |
-| POST | `/notifications/{id}/read` | jwt | — (own) |
-| POST | `/notifications/read-all` | jwt | — (own) |
+| GET | `/notifications` | jwt | `notification:read` (own rows only) |
+| POST | `/notifications/{id}/read` | jwt | `notification:manage` (own rows only) |
+| POST | `/notifications/read-all` | jwt | `notification:manage` (own rows only) |
 
 ### 4.24 Extensions — `/api/v1/extensions`
 
@@ -596,6 +605,20 @@ with a fingerprint (ADR-0009/0015 discipline).
 | GET | `/ready` | none | Readiness (DB + agent) |
 | GET | `/version` | none | Panel version, agent version, schema version |
 | GET | `/events` (WebSocket) | jwt | Live event stream for the caller |
+
+### 4.26 Job Center — `/api/v1/jobs` (B13)
+
+| Method | Path | Auth | Permission |
+|---|---|---|---|
+| GET | `/jobs` | jwt | `job:list` |
+| GET | `/jobs/{id}` | jwt | `job:list` |
+| POST | `/jobs/{id}/retry` | jwt | `job:manage` |
+
+The visible state of long-running work (`jobs_metadata`, BullMQ-shaped:
+waiting/active/completed/failed + progress + attempts). Retry is a
+confirmed, audited action that starts a NEW attempt row via an explicit
+per-type handler allowlist (`malware.scan`, `backup.run`) — there is no
+generic re-run primitive.
 
 ## 5. WebSocket Events — `/api/v1/events`
 

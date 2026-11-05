@@ -48,6 +48,10 @@ function harness(opts: {
   const domains = opts.domains ?? [];
 
   const prisma = {
+    jobMetadata: {
+      create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'jobrow-1', ...data })),
+      update: jest.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => ({ id: where.id, ...data })),
+    },
     backupDestination: {
       findFirst: jest.fn(async ({ where }: { where: Record<string, unknown> }) =>
         rows.find((r) => r.kind === 'destination' && (where['id'] === undefined || r.id === where['id']) && (where['name'] === undefined || r['name'] === where['name'])) ?? null,

@@ -28,6 +28,10 @@ function harness() {
   let cvId = 1;
 
   const prisma: Record<string, any> = {
+    jobMetadata: {
+      create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'jobrow-1', ...data })),
+      update: jest.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => ({ id: where.id, ...data })),
+    },
     domain: {
       findMany: jest.fn(async () => domains),
       findFirst: jest.fn(async ({ where }: { where: { id: string; deleted_at: null } }) =>
