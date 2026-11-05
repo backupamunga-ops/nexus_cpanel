@@ -135,6 +135,7 @@ model HostingAccount {
   ftp_accounts__hosting_account_id  FtpAccount[]  @relation("ftp_accounts.hosting_account_id")
   ssh_keys__hosting_account_id  SshKey[]      @relation("ssh_keys.hosting_account_id")
   trash_entries__hosting_account_id  TrashEntry[]  @relation("trash_entries.hosting_account_id")
+  file_accounts__hosting_account_id  FileAccount[]  @relation("file_accounts.hosting_account_id")
   audit_entries__hosting_account_id  AuditEntry[]  @relation("audit_entries.hosting_account_id")
   migration_jobs__target_account_id  MigrationJob[]  @relation("migration_jobs.target_account_id")
   @@map("hosting_accounts")
@@ -425,6 +426,21 @@ model TrashEntry {
   hosting_account   HostingAccount  @relation("trash_entries.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
   @@map("trash_entries")
   @@index([hosting_account_id, purge_after])
+}
+
+model FileAccount {
+  id                String        @id @default(dbgenerated("uuid_generate_v7()")) @db.Uuid
+  hosting_account_id  String        @db.Uuid
+  username          String        @unique
+  root_dir          String
+  read_only         Boolean       @default(false)
+  status            String        @default("active")
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime      @default(now()) @db.Timestamptz(6)
+  deleted_at        DateTime?     @db.Timestamptz(6)
+  hosting_account   HostingAccount  @relation("file_accounts.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
+  @@map("file_accounts")
+  @@index([hosting_account_id, deleted_at])
 }
 
 model Certificate {

@@ -553,6 +553,47 @@ export class AgentClientService {
     return r.result;
   }
 
+  // ---- P4 amendment ADR-0011: ftp.* vsftpd virtual users --------------------
+
+  async ftpCreateAccount(input: {
+    owner_username: string;
+    ftp_username: string;
+    password: string;
+    root_dir: string;
+    read_only: boolean;
+  }): Promise<{ status: string; root_dir: string; read_only: boolean; userdb: { rebuilt: boolean; skipped?: string } }> {
+    const r = await this.call<{
+      status: string;
+      root_dir: string;
+      read_only: boolean;
+      userdb: { rebuilt: boolean; skipped?: string };
+    }>('ftp.create_account', input);
+    return r.result;
+  }
+
+  async ftpDeleteAccount(ftpUsername: string): Promise<{ status: string; userdb: { rebuilt: boolean; skipped?: string } }> {
+    const r = await this.call<{ status: string; userdb: { rebuilt: boolean; skipped?: string } }>(
+      'ftp.delete_account',
+      { ftp_username: ftpUsername },
+    );
+    return r.result;
+  }
+
+  async ftpSetPassword(ftpUsername: string, password: string): Promise<{ status: string; userdb: { rebuilt: boolean; skipped?: string } }> {
+    const r = await this.call<{ status: string; userdb: { rebuilt: boolean; skipped?: string } }>(
+      'ftp.set_password',
+      { ftp_username: ftpUsername, password },
+    );
+    return r.result;
+  }
+
+  async ftpListAccounts(): Promise<{ accounts: Array<{ username: string; root_dir: string; read_only: boolean }> }> {
+    const r = await this.call<{
+      accounts: Array<{ username: string; root_dir: string; read_only: boolean }>;
+    }>('ftp.list_accounts', {});
+    return r.result;
+  }
+
   /** Exposed for tests: the exact bytes that were signed. */
   static signatureInput(
     method: string,

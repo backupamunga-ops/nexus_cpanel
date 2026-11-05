@@ -385,6 +385,28 @@ CREATE TABLE trash_entries (
 CREATE INDEX ON trash_entries (hosting_account_id, purge_after);
 
 -- ============================================================================
+-- FTP ACCOUNTS (P4 amendment ADR-0011) — vsftpd virtual-user registry
+-- ============================================================================
+-- The login (username) is the vsftpd virtual-user name and is globally
+-- unique: the agent keys its per-user config files and the pam_userdb
+-- entries by it. Passwords NEVER live here — the agent hashes into the
+-- user DB directly (SHA-512-crypt via openssl); this table is metadata
+-- only. root_dir is confined to the owning account's home (C13).
+
+CREATE TABLE file_accounts (
+  id                  uuid PRIMARY KEY DEFAULT uuid_generate_v7(),
+  hosting_account_id  uuid NOT NULL REFERENCES hosting_accounts(id) ON DELETE CASCADE,
+  username            text NOT NULL UNIQUE,        -- vsftpd virtual-user login
+  root_dir            text NOT NULL,               -- confined inside the account home
+  read_only           boolean NOT NULL DEFAULT false,
+  status              text NOT NULL DEFAULT 'active',  -- active | suspended
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+  deleted_at          timestamptz
+);
+CREATE INDEX ON file_accounts (hosting_account_id, deleted_at);
+
+-- ============================================================================
 -- SSL, SECURITY, FIREWALL
 -- ============================================================================
 
