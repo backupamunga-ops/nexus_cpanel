@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Resellers · NexusPanel Docs</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="portal">
+  <aside>
+    <div class="brand">NexusPanel Docs</div>
+    <div class="tag">v0.1.0-m0 · preview</div>
+    <div class="group">Admin guide</div>
+    <nav>
+      <a href="accounts.html">Accounts &amp; packages</a>
+      <a class="active" href="resellers.html">Resellers</a>
+      <a href="audit.html">Audit log &amp; chain</a>
+    </nav>
+    <div class="back"><a href="../index.html">← Documentation home</a></div>
+  </aside>
+  <main>
+    <h1>Resellers</h1>
+    <p class="lede">
+      A reseller is a hosting account that has been granted reseller
+      capability: it can be branded, it can sit inside a nesting hierarchy,
+      and it can serve the panel from its own domain. This chapter covers
+      what is live in the panel today — capability grants, the nesting
+      policy, white-label branding and custom-domain registration — and how
+      sessions stay isolated between branded origins (security control
+      <strong>C14</strong>).
+    </p>
+
+    <h2>Granting reseller capability <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Open <strong>Resellers</strong> in the sidebar (server admins only).
+      The grant form lists every hosting account that is not yet a reseller;
+      pick one, optionally choose a parent reseller, and confirm. The
+      reseller record hangs off the hosting account — the account keeps its
+      OS identity, quota and agent provisioning, and the reseller layer adds
+      the commercial surface on top. Removing a reseller later is a soft
+      delete: the audit history stays, the hosting account is untouched.
+    </p>
+    <ul>
+      <li><strong>One reseller per account</strong> — a second grant on the
+        same account is refused with 409.</li>
+      <li><strong>Every grant is audited</strong> as
+        <code>reseller.create</code> in the tamper-evident chain, including
+        who granted it, the parent and the resulting depth.</li>
+    </ul>
+
+    <h2>Nesting &amp; the depth policy <span class="badge ok">live in the panel</span></h2>
+    <p>
+      The data model supports unlimited nesting; the <em>policy</em> caps it.
+      By default a reseller tree may be <strong>2 levels deep</strong>
+      (a reseller and one tier of sub-resellers). Server admins can raise or
+      lower the cap per installation with the <code>RESELLER_MAX_DEPTH</code>
+      environment variable — there is no code ceiling, it is an
+      admin-controlled policy knob (Decision 3 in the specification set).
+    </p>
+    <ul>
+      <li><strong>Re-parenting</strong> — a reseller can be moved under
+        another reseller (or up to the top level with a null parent). The
+        whole moved subtree shifts with the node; a move that would push
+        <em>any</em> descendant past the cap is refused with a 400 naming
+        the account that would overflow.</li>
+      <li><strong>No cycles</strong> — a reseller can never be re-parented
+        under itself or one of its own descendants.</li>
+      <li><strong>No orphans</strong> — deleting a reseller that still has
+        live child resellers is refused with 409 until the children are
+        re-parented or removed first.</li>
+    </ul>
+
+    <h2>White-label branding <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Each reseller carries a branding object rendered on the branded panel
+      surface: <code>brand_name</code>, <code>primary_color</code> /
+      <code>accent_color</code> (<code>#rrggbb</code>), an
+      <code>https://</code>-only <code>logo_url</code> and a
+      <code>login_message</code>. Validation is fail-closed — malformed
+      values are rejected with a clear 400 rather than silently ignored —
+      and updates are <em>full replacements</em>: send the complete object
+      you want stored, exactly like package quotas.
+    </p>
+
+    <h2>Custom panel domains <span class="badge ok">live in the panel</span> <span class="badge">ADR-0003</span></h2>
+    <p>
+      A reseller can serve the panel from <code>panel.brandco.example</code>
+      instead of the provider's host. Registration in the panel sets the
+      domain with status <span class="badge">pending</span>; the certificate
+      issuance that flips it to <span class="badge ok">active</span> is an
+      out-of-band ACME process on the node. Domains are validated strictly
+      (hostnames only — no ports, paths or wildcards) and unique among live
+      resellers: two resellers claiming one origin would defeat the
+      isolation described below.
+    </p>
+
+    <h3>C14 — session isolation across branded origins</h3>
+    <p>
+      When a branded domain is active, sessions are pinned to the origin
+      they were created on, in two cooperating layers:
+    </p>
+    <ul>
+      <li><strong>Cookie layer</strong> — the refresh cookie carries no
+        <code>Domain</code> attribute (host-only): the browser itself never
+        ships reseller A's cookie to reseller B's site.</li>
+      <li><strong>Server layer</strong> — every session records the Host it
+        was minted on. On each refresh the request's Host is classified
+        against the <em>active</em> reseller domains: crossing from one
+        branded origin to another — or between a branded origin and the
+        canonical panel — is refused with the refresh path's uniform 401,
+        the session is revoked and the attempt is audited as
+        <code>auth.refresh</code> with reason
+        <code>host_crossing</code>.</li>
+    </ul>
+    <div class="callout">
+      Cross-origin replay (a copied token presented on the wrong host) is
+      treated like a device-fingerprint mismatch: the session dies and
+      re-authentication is required. Domains still <em>pending</em> do not
+      participate in enforcement, so registering a domain never locks
+      existing users out before it actually activates.
+    </div>
+
+    <h2>API surface <span class="badge ok">live</span></h2>
+    <pre><code>GET    /api/v1/resellers                     reseller:list
+GET    /api/v1/resellers/{id}                reseller:read
+POST   /api/v1/resellers                     reseller:create
+PATCH  /api/v1/resellers/{id}                reseller:update      (re-parent)
+DELETE /api/v1/resellers/{id}                reseller:delete      (soft)
+GET    /api/v1/resellers/{id}/branding       reseller:read
+PATCH  /api/v1/resellers/{id}/branding       reseller:update      (full replace)
+POST   /api/v1/resellers/{id}/custom-domain  reseller:update      (status: pending)
+DELETE /api/v1/resellers/{id}/custom-domain  reseller:update</code></pre>
+    <p>
+      Audited operations: <code>reseller.create</code>,
+      <code>reseller.update</code>, <code>reseller.delete</code>,
+      <code>reseller.branding.update</code>,
+      <code>reseller.custom_domain.set</code>,
+      <code>reseller.custom_domain.clear</code> — all in the same
+      hash-chained chain as every other privileged action.
+    </p>
+  </main>
+</div>
+</body>
+</html>
