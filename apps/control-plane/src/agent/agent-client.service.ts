@@ -521,6 +521,38 @@ export class AgentClientService {
     return r.result;
   }
 
+  // ---- P4 amendment ADR-0010: ssh.* authorized_keys -------------------------
+
+  async sshDeployKeys(
+    username: string,
+    keys: Array<{ fingerprint: string; public_key: string }>,
+  ): Promise<{ file: string; managed_count: number; foreign_count: number; ownership: string }> {
+    const r = await this.call<{
+      file: string;
+      managed_count: number;
+      foreign_count: number;
+      ownership: string;
+    }>('ssh.deploy_keys', { username, keys });
+    return r.result;
+  }
+
+  async sshListDeployed(username: string): Promise<{
+    file: string;
+    exists: boolean;
+    managed: Array<{ fingerprint: string; public_key: string }>;
+    foreign_count: number;
+    ownership: string;
+  }> {
+    const r = await this.call<{
+      file: string;
+      exists: boolean;
+      managed: Array<{ fingerprint: string; public_key: string }>;
+      foreign_count: number;
+      ownership: string;
+    }>('ssh.list_deployed', { username });
+    return r.result;
+  }
+
   /** Exposed for tests: the exact bytes that were signed. */
   static signatureInput(
     method: string,

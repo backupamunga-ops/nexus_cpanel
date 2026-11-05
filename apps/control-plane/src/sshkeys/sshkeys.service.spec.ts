@@ -50,7 +50,9 @@ function harness() {
       findFirst: jest.fn(async () => null),
     },
     sshKey: {
-      findMany: jest.fn(async () => keys),
+      findMany: jest.fn(async ({ select }: { select?: unknown }) =>
+        keys.map((k) => (select ? Object.fromEntries(Object.keys(select as string[]).map((f) => [f, k[f]])) : k)),
+      ),
       findFirst: jest.fn(async ({ where }: { where: Record<string, unknown> }) =>
         keys.find(
           (k) =>
@@ -72,8 +74,23 @@ function harness() {
     },
     $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>): Promise<unknown> => fn(prisma)),
   };
-  const svc = new SshKeysService(prisma as unknown as PrismaService, audit);
-  return { svc, keys, audit, prisma };
+  const agent = {
+    sshDeployKeys: jest.fn(async (_username: string, ks: Array<{ fingerprint: string }>) => ({
+      file: '/home/alice/.ssh/authorized_keys',
+      managed_count: ks.length,
+      foreign_count: 1,
+      ownership: 'account-owned',
+    })),
+    sshListDeployed: jest.fn(async (_username: string) => ({
+      file: '/home/alice/.ssh/authorized_keys',
+      exists: true,
+      managed: [] as Array<{ fingerprint: string; public_key: string }>,
+      foreign_count: 0,
+      ownership: 'account-owned',
+    })),
+  };
+  const svc = new SshKeysService(prisma as unknown as PrismaService, agent as never, audit);
+  return { svc, keys, audit, prisma, agent };
 }
 
 describe('ssh keys', () => {
@@ -131,5 +148,69 @@ describe('ssh keys', () => {
     await expect(
       h.svc.create({ userId: 'u2', isSuperAdmin: false }, { account_id: ACCOUNT.id, name: 'a', public_key: ED25519_KEY }),
     ).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('ssh key deployment (ADR-0010)', () => {
+  it('deploys every stored key to the node and audits the reconcile', async () => {
+    const h = harness();
+    await h.svc.create(SUPER, { account_id: ACCOUNT.id, name: 'laptop', public_key: ED25519_KEY });
+    const out = await h.svc.deploy(SUPER, ACCOUNT.id);
+    expect(out).toEqual({ deployed: 1, foreign_preserved: 1, ownership: 'account-owned' });
+    expect(h.agent.sshDeployKeys).toHaveBeenCalledWith('alice', [
+      { fingerprint: ED25519_FINGERPRINT, public_key: ED25519_KEY },
+    ]);
+    const ops = h.audit.list().filter((e) => e.operation === 'sshkey.deploy');
+    expect(ops).toHaveLength(1);
+    expect(ops[0]['outcome']).toBe('success');
+  });
+
+  it('deploys the empty set when no keys are stored (removes managed lines only)', async () => {
+    const h = harness();
+    const out = await h.svc.deploy(SUPER, ACCOUNT.id);
+    expect(out.deployed).toBe(0);
+    expect(h.agent.sshDeployKeys).toHaveBeenCalledWith('alice', []);
+  });
+
+  it('audits failures and rethrows agent errors', async () => {
+    const h = harness();
+    h.agent.sshDeployKeys.mockRejectedValueOnce(new Error('agent unreachable'));
+    await expect(h.svc.deploy(SUPER, ACCOUNT.id)).rejects.toThrow('agent unreachable');
+    const ops = h.audit.list().filter((e) => e.operation === 'sshkey.deploy');
+    expect(ops[0]['outcome']).toBe('failure');
+  });
+
+  it('reports live on-node state matched against stored fingerprints', async () => {
+    const h = harness();
+    const a = await h.svc.create(SUPER, { account_id: ACCOUNT.id, name: 'on-node', public_key: ED25519_KEY });
+    h.keys.push({
+      id: uid(999), hosting_account_id: ACCOUNT.id, name: 'not-yet',
+      public_key: ED25519_KEY, fingerprint: 'SHA256:different',
+      created_at: new Date(), deleted_at: null,
+    });
+    const other = { id: uid(999) };
+    h.agent.sshListDeployed.mockResolvedValueOnce({
+      file: '/home/alice/.ssh/authorized_keys',
+      exists: true,
+      managed: [{ fingerprint: ED25519_FINGERPRINT, public_key: ED25519_KEY }],
+      foreign_count: 2,
+      ownership: 'account-owned',
+    });
+    const out = await h.svc.deployed(SUPER, ACCOUNT.id);
+    expect(out.exists).toBe(true);
+    expect(out.foreign_count).toBe(2);
+    const byId = Object.fromEntries(out.data.map((d) => [d.ssh_key_id, d]));
+    expect(byId[a.id].on_node).toBe(true);
+    expect(byId[other.id].on_node).toBe(false);
+  });
+
+  it('404s deployment surfaces for unknown accounts', async () => {
+    const h = harness();
+    await expect(h.svc.deploy(SUPER, '01900000-0000-7000-8000-0000000000ff')).rejects.toThrow(
+      NotFoundException,
+    );
+    await expect(h.svc.deployed(SUPER, '01900000-0000-7000-8000-0000000000ff')).rejects.toThrow(
+      NotFoundException,
+    );
   });
 });

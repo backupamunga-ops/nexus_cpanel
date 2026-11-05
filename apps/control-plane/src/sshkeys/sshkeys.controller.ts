@@ -38,6 +38,33 @@ export class SshKeysController {
   async remove(@CurrentUser() user: AuthContext, @Param('id') id: string): Promise<void> {
     await this.sshKeys.remove(actorOf(user), id);
   }
+
+  // ------------------------------------------------- deployment (ADR-0010)
+
+  /** Live on-node deployment state (query: ?account_id=…). */
+  @Get('deployed')
+  @RequirePermission('ssh:read')
+  async deployed(
+    @CurrentUser() user: AuthContext,
+    @Query('account_id') accountId: string,
+  ): Promise<{
+    file: string;
+    exists: boolean;
+    foreign_count: number;
+    data: Array<{ ssh_key_id: string; name: string; fingerprint: string; on_node: boolean }>;
+  }> {
+    return this.sshKeys.deployed(actorOf(user), accountId);
+  }
+
+  /** Deploys every stored key of the account (managed-line reconcile). */
+  @Post('deploy')
+  @RequirePermission('ssh:manage')
+  async deploy(
+    @CurrentUser() user: AuthContext,
+    @Body() body: { account_id?: string },
+  ): Promise<{ deployed: number; foreign_preserved: number; ownership: string }> {
+    return this.sshKeys.deploy(actorOf(user), body?.account_id);
+  }
 }
 
 function actorOf(user: AuthContext): Actor {

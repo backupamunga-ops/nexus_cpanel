@@ -7,6 +7,7 @@ import {
 import * as crypto from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditAppender, InjectAudit } from '../audit/audit.service';
+import { AgentClientService } from '../agent/agent-client.service';
 import { Actor } from '../sites/sites.service';
 
 /**
@@ -15,10 +16,12 @@ import { Actor } from '../sites/sites.service';
  * import (a mismatched fingerprint means the stored key is not the key the
  * user pasted — that class of bug dies here).
  *
- * D-11 honesty: keys are STORED in this milestone. Deployment to the
- * account's authorized_keys is an agent-side write (P4 amendment) — until
- * then the UI labels these "stored — not yet deployed to the node", and
- * nothing pretends otherwise.
+ * Deployment (ADR-0010): keys are deployed to the account's
+ * ~/.ssh/authorized_keys through the agent's ssh.deploy_keys — a
+ * managed-line reconcile that preserves hand-added (foreign) keys. The
+ * "on node" state is NEVER cached: it is derived live from
+ * ssh.list_deployed matched against imported fingerprints, so the UI
+ * badge cannot rot (D-11).
  */
 
 const KEY_TYPES = [
@@ -45,6 +48,7 @@ export interface SshKeyDto {
 export class SshKeysService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly agent: AgentClientService,
     @InjectAudit() private readonly audit: AuditAppender,
   ) {}
 
@@ -54,7 +58,7 @@ export class SshKeysService {
     }
     const account = await this.prisma.hostingAccount.findFirst({
       where: { id: accountId, deleted_at: null },
-      select: { id: true },
+      select: { id: true, username: true },
     });
     if (!account) {
       throw new NotFoundException('hosting account not found');
@@ -171,6 +175,90 @@ export class SshKeysService {
         hostingAccountId: row.hosting_account_id,
       });
     });
+  }
+
+  // ------------------------------------------------- deployment (ADR-0010)
+
+  /**
+   * Deploys every stored key of the account to the node's
+   * authorized_keys (managed-line reconcile). Deploying the empty set is
+   * legitimate: it removes only panel-managed lines.
+   */
+  async deploy(
+    actor: Actor | undefined,
+    accountId: unknown,
+  ): Promise<{ deployed: number; foreign_preserved: number; ownership: string }> {
+    const account = await this.requireAccount(actor, accountId);
+    const keys = await this.prisma.sshKey.findMany({
+      where: { hosting_account_id: account.id, deleted_at: null },
+      select: { fingerprint: true, public_key: true },
+      orderBy: { created_at: 'asc' },
+    });
+    try {
+      const res = await this.agent.sshDeployKeys(
+        account.username,
+        keys.map((k) => ({ fingerprint: k.fingerprint, public_key: k.public_key })),
+      );
+      await this.audit.append({
+        operation: 'sshkey.deploy',
+        parameters: {
+          account_id: account.id,
+          deployed: res.managed_count,
+          foreign_preserved: res.foreign_count,
+          ownership: res.ownership,
+        },
+        outcome: 'success',
+        actorUserId: actor?.userId ?? null,
+        hostingAccountId: account.id,
+      });
+      return { deployed: res.managed_count, foreign_preserved: res.foreign_count, ownership: res.ownership };
+    } catch (e) {
+      await this.audit.append({
+        operation: 'sshkey.deploy',
+        parameters: { account_id: account.id, error: (e as Error).message },
+        outcome: 'failure',
+        actorUserId: actor?.userId ?? null,
+        hostingAccountId: account.id,
+      });
+      throw e;
+    }
+  }
+
+  /**
+   * Live on-node state: the deployed authorized_keys reconciled against
+   * the panel's stored keys. Nothing here is cached — the agent reads the
+   * actual file on every call.
+   */
+  async deployed(
+    actor: Actor | undefined,
+    accountId: unknown,
+  ): Promise<{
+    file: string;
+    exists: boolean;
+    foreign_count: number;
+    data: Array<{ ssh_key_id: string; name: string; fingerprint: string; on_node: boolean }>;
+  }> {
+    const account = await this.requireAccount(actor, accountId);
+    const [rows, live] = await Promise.all([
+      this.prisma.sshKey.findMany({
+        where: { hosting_account_id: account.id, deleted_at: null },
+        select: { id: true, name: true, fingerprint: true },
+        orderBy: { created_at: 'asc' },
+      }),
+      this.agent.sshListDeployed(account.username),
+    ]);
+    const onNode = new Set(live.managed.map((m) => m.fingerprint));
+    return {
+      file: live.file,
+      exists: live.exists,
+      foreign_count: live.foreign_count,
+      data: rows.map((r) => ({
+        ssh_key_id: r.id,
+        name: r.name,
+        fingerprint: r.fingerprint,
+        on_node: onNode.has(r.fingerprint),
+      })),
+    };
   }
 }
 

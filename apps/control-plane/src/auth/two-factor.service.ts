@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditAppender, InjectAudit } from '../audit/audit.service';
-import { PasswordService } from './auth.service';
+import { PasswordService } from './password.service';
 import { SecretBox } from './secret-box';
 import { generateTotpSecret, otpauthUri, verifyTotp } from './totp';
 import { Prisma } from '@prisma/client';

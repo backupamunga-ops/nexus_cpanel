@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthController } from './auth.controller';
-import { AuthService, PasswordService } from './auth.service';
+import { AuthService } from './auth.service';
+import { PasswordService } from './password.service';
 import { JwtService } from './jwt.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { PermissionsGuard } from './permissions.guard';
@@ -26,9 +27,10 @@ import { SettingsModule } from '../settings/settings.module';
     ApiTokensService,
     TwoFactorService,
     PasswordService,
-    SecretBox,
-    // Factory: JwtService takes an optional plain-string test seam that Nest
-    // cannot reflect-inject; production reads AUTH_JWT_SECRET from env.
+    // Factory: SecretBox takes an optional plain-Buffer test seam that Nest
+    // cannot reflect-inject (a union with Buffer compiles to an `Object`
+    // token); production resolves CP_SECRETS_KEY(_PATH) from env.
+    { provide: SecretBox, useFactory: () => new SecretBox() },
     { provide: JwtService, useFactory: () => new JwtService() },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
