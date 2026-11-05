@@ -9,6 +9,7 @@ import { SitesModule } from './sites/sites.module';
 import { FilesModule } from './files/files.module';
 import { SshKeysModule } from './sshkeys/sshkeys.module';
 import { SslModule } from './ssl/ssl.module';
+import { PhpModule } from './php/php.module';
 import { AgentModule } from './agent/agent.module';
 import { AuditModule } from './audit/audit.module';
 import { EventsModule } from './events/events.module';
@@ -28,6 +29,7 @@ import { PrismaModule } from './prisma/prisma.module';
     FilesModule,
     SshKeysModule,
     SslModule,
+    PhpModule,
     AgentModule,
     AuditModule,
     EventsModule,

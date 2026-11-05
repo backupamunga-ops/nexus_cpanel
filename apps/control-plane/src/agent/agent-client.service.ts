@@ -441,6 +441,52 @@ export class AgentClientService {
     return r.result;
   }
 
+  // ---- P3: php (§4.6) -------------------------------------------------------
+
+  async phpCreatePool(
+    username: string,
+    domain: string,
+    version: string,
+    config: Record<string, unknown>,
+  ): Promise<{ status: string; version: string; pool_file: string; conf_content: string }> {
+    const r = await this.call<{
+      status: string;
+      version: string;
+      pool_file: string;
+      conf_content: string;
+    }>('php.create_pool', { username, domain, version, config });
+    return r.result;
+  }
+
+  async phpModifyPool(
+    username: string,
+    domain: string,
+    version: string,
+    config: Record<string, unknown>,
+  ): Promise<{ status: string; version: string; pool_file: string; conf_content: string }> {
+    const r = await this.call<{
+      status: string;
+      version: string;
+      pool_file: string;
+      conf_content: string;
+    }>('php.modify_pool', { username, domain, version, config });
+    return r.result;
+  }
+
+  async phpDeletePool(username: string, domain: string, version: string): Promise<{ status: string; version: string }> {
+    const r = await this.call<{ status: string; version: string }>('php.delete_pool', {
+      username,
+      domain,
+      version,
+    });
+    return r.result;
+  }
+
+  async phpListVersions(): Promise<{ installed: string[] }> {
+    const r = await this.call<{ installed: string[] }>('php.list_versions', {});
+    return r.result;
+  }
+
   /** Exposed for tests: the exact bytes that were signed. */
   static signatureInput(
     method: string,
