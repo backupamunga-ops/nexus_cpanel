@@ -81,6 +81,17 @@ interface PhpView {
   offered_by_package: string[];
 }
 
+interface DomainLogDto {
+  domain_id: string;
+  kind: 'access' | 'error';
+  file: string;
+  exists: boolean;
+  file_size_bytes: number;
+  file_truncated: boolean;
+  total_lines: number;
+  lines: string[];
+}
+
 interface AccountOption {
   id: string;
   username: string;
@@ -107,6 +118,9 @@ export default function SitesPage() {
   const [phpMaxExec, setPhpMaxExec] = useState('30');
   const [versions, setVersions] = useState<ConfigVersion[]>([]);
   const [drift, setDrift] = useState<DriftEvent[]>([]);
+  const [logKind, setLogKind] = useState<'access' | 'error'>('access');
+  const [logTail, setLogTail] = useState('200');
+  const [log, setLog] = useState<DomainLogDto | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -147,12 +161,28 @@ export default function SitesPage() {
     void refresh();
   }, [refresh]);
 
+  const loadLogs = useCallback(async () => {
+    if (!selected) return;
+    try {
+      const j = await api<DomainLogDto>(`/domains/${selected.id}/logs?type=${logKind}&lines=${logTail}`);
+      setLog(j);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'failed to load logs');
+    }
+  }, [selected, logKind, logTail]);
+
+  useEffect(() => {
+    if (selected) void loadLogs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, logKind, logTail]);
+
   const loadDetail = useCallback(async (d: DomainDto) => {
     setSelected(d);
     setSubdomains([]);
     setAliases([]);
     setRedirects([]);
     setCert(null);
+    setLog(null);
     try {
       const [s, a, r, ssl] = await Promise.all([
         api<{ data: SubdomainDto[] }>(`/domains/${d.id}/subdomains`),
@@ -815,6 +845,74 @@ export default function SitesPage() {
                     )}
                   </div>
                 ))}
+              </div>
+
+              <div className="np-card">
+                <h3 style={{ marginTop: 0 }}>Logs</h3>
+                <p style={{ color: 'var(--np-muted)', fontSize: 13, marginTop: 0 }}>
+                  Per-domain nginx access/error logs, written into the account&apos;s
+                  <code> logs/ </code> directory and tailed through the agent&apos;s confined
+                  read path (10 MiB cap).
+                </p>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+                  <select
+                    className="np-input"
+                    value={logKind}
+                    onChange={(e) => setLogKind(e.target.value === 'error' ? 'error' : 'access')}
+                    aria-label="Log type"
+                    style={{ maxWidth: 140 }}
+                  >
+                    <option value="access">access log</option>
+                    <option value="error">error log</option>
+                  </select>
+                  <select
+                    className="np-input"
+                    value={logTail}
+                    onChange={(e) => setLogTail(e.target.value)}
+                    aria-label="Lines to show"
+                    style={{ maxWidth: 120 }}
+                  >
+                    {['100', '200', '500', '1000'].map((n) => (
+                      <option key={n} value={n}>
+                        {n} lines
+                      </option>
+                    ))}
+                  </select>
+                  <button className="np-button" onClick={() => void loadLogs()} disabled={!selected}>
+                    Refresh
+                  </button>
+                </div>
+                {log && !log.exists && (
+                  <p style={{ color: 'var(--np-muted)', fontSize: 13 }}>
+                    No {logKind} log yet — the file appears after the first request to this site
+                    following a vhost apply. Sites created before per-site logging get their log
+                    directives on the next vhost re-apply (any site edit triggers one).
+                  </p>
+                )}
+                {log && log.exists && (
+                  <>
+                    <p style={{ color: 'var(--np-muted)', fontSize: 12, marginTop: 0 }}>
+                      {log.file} · last {log.lines.length} of {log.total_lines} lines
+                      {log.file_truncated &&
+                        ' · file exceeded the 10 MiB read cap — oldest bytes not shown'}
+                    </p>
+                    <pre
+                      style={{
+                        background: 'rgba(127,127,127,0.1)',
+                        padding: 10,
+                        fontSize: 12,
+                        overflowX: 'auto',
+                        overflowY: 'auto',
+                        maxHeight: 320,
+                        margin: 0,
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-all',
+                      }}
+                    >
+                      {log.lines.join('\n') || '(empty)'}
+                    </pre>
+                  </>
+                )}
               </div>
             </>
           )}
