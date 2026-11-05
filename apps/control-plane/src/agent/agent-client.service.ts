@@ -487,6 +487,40 @@ export class AgentClientService {
     return r.result;
   }
 
+  // ---- P3: config engine (§4.5) --------------------------------------------
+
+  async configDriftCheck(
+    targetName: string,
+    expectedContent: string,
+  ): Promise<{
+    matches: boolean;
+    exists: boolean;
+    expected_hash: string;
+    actual_hash: string;
+    file_path: string;
+  }> {
+    const r = await this.call<{
+      matches: boolean;
+      exists: boolean;
+      expected_hash: string;
+      actual_hash: string;
+      file_path: string;
+    }>('config.drift_check', {
+      target_type: 'nginx_vhost',
+      target_name: targetName,
+      expected_content: expectedContent,
+    });
+    return r.result;
+  }
+
+  async configListActive(targetName: string): Promise<{ exists: boolean; content: string; file_path: string }> {
+    const r = await this.call<{ exists: boolean; content: string; file_path: string }>(
+      'config.list_active',
+      { target_type: 'nginx_vhost', target_name: targetName },
+    );
+    return r.result;
+  }
+
   /** Exposed for tests: the exact bytes that were signed. */
   static signatureInput(
     method: string,

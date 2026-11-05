@@ -59,6 +59,8 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
   'auth:tokens',
   'file:delete',
   'file:read',
+  'config:manage',
+  'config:read',
   'file:write',
   'package:create',
   'php:manage',
@@ -93,7 +95,7 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
  * boundary. Visibility failures are 404, not 403 (API spec §3.2
  * anti-enumeration). Grows family by family as P3 resources land.
  */
-export const HOSTING_SCOPED_PREFIXES: readonly string[] = ['site:', 'file:', 'ssh:', 'ssl:', 'php:'];
+export const HOSTING_SCOPED_PREFIXES: readonly string[] = ['site:', 'file:', 'ssh:', 'ssl:', 'php:', 'config:'];
 
 /**
  * Roles that may be granted through the sharing API (POST /accounts/{id}/shares).
@@ -131,7 +133,9 @@ export const ACCOUNT_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'site:update',
     'site:delete',
     'file:read',
-    'file:write',
+    'config:manage',
+  'config:read',
+  'file:write',
     'file:delete',
     'ssh:read',
     'ssh:manage',
@@ -139,6 +143,8 @@ export const ACCOUNT_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'ssl:issue',
     'ssl:revoke',
     'php:manage',
+    'config:read',
+    'config:manage',
   ],
   admin: [
     'account:read',
@@ -152,7 +158,9 @@ export const ACCOUNT_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'site:update',
     'site:delete',
     'file:read',
-    'file:write',
+    'config:manage',
+  'config:read',
+  'file:write',
     'file:delete',
     'ssh:read',
     'ssh:manage',
@@ -160,9 +168,11 @@ export const ACCOUNT_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'ssl:issue',
     'ssl:revoke',
     'php:manage',
+    'config:read',
+    'config:manage',
   ],
-  member: ['account:read', 'site:list', 'site:read', 'file:read', 'ssl:read'],
-  readonly: ['account:read', 'site:list', 'site:read', 'file:read', 'ssl:read'],
+  member: ['account:read', 'site:list', 'site:read', 'file:read', 'ssl:read', 'config:read'],
+  readonly: ['account:read', 'site:list', 'site:read', 'file:read', 'ssl:read', 'config:read'],
 };
 
 /**

@@ -233,6 +233,19 @@ export class PermissionsGuard implements CanActivate {
       return queryAccountId;
     }
 
+    // Config-engine routes address targets as /config/:targetType/:targetId;
+    // in this build both target types key on the domain id.
+    const targetType = req.params?.targetType;
+    const targetId = req.params?.targetId;
+    if ((targetType === 'nginx_vhost' || targetType === 'php_pool') && typeof targetId === 'string' && UUID_RE.test(targetId)) {
+      const domain = await this.prisma.domain.findFirst({
+        where: { id: targetId, deleted_at: null },
+        select: { hosting_account_id: true },
+      });
+      if (domain) return domain.hosting_account_id;
+      return null;
+    }
+
     const id = req.params?.id;
     if (typeof id !== 'string' || !UUID_RE.test(id)) {
       return null;
