@@ -10,7 +10,7 @@
 <div class="portal">
   <aside>
     <div class="brand">NexusPanel Docs</div>
-    <div class="tag">v0.1.0-m0 · preview</div>
+    <div class="tag">v0.1.0 · P4 in progress</div>
     <div class="group">Start here</div>
     <nav>
       <a class="active" href="index.html">Welcome</a>
@@ -52,13 +52,15 @@
     </p>
 
     <div class="card">
-      <span class="badge ok">M0 preview</span>
+      <span class="badge ok">P3 complete · P4 in progress</span>
       <p style="margin: 12px 0 0;">
-        The current milestone proves the full vertical thread: <strong>login →
+        The shipped milestones prove the full vertical thread: <strong>login →
         create hosting account → signed command → privileged Go agent →
-        hash-chained audit → live usage in the UI</strong>. Chapters for later
-        phases are stubbed with their planned scope so the information
-        architecture is reviewable now.
+        hash-chained audit → live usage in the UI</strong>, then sites &amp;
+        domains, files/FTP/SSH, SSL (ACME http-01), per-site PHP, the config
+        engine, and DNS zones (P4, in progress). Chapters for later phases are
+        stubbed with their planned scope so the information architecture is
+        reviewable now.
       </p>
     </div>
 
@@ -76,7 +78,13 @@
       <tr><td>Resellers — nesting, branding, custom domains (C14)</td><td><a href="chapters/resellers.html">Resellers</a></td><td><span class="badge ok">live</span></td></tr>
       <tr><td>Server settings — whitelisted, audited platform config (D-11)</td><td><a href="chapters/server-settings.html">Server settings</a>
       <a href="chapters/config.html">Configuration engine</a></td><td><span class="badge ok">live</span></td></tr>
-      <tr><td>Sites, mail, DNS, databases, backups</td><td>chapters</td><td><span class="badge">P3–P4</span></td></tr>
+      <tr><td>Sites &amp; domains — create, subdomains, aliases, redirects, logs</td><td><a href="chapters/sites.html">Sites &amp; domains</a></td><td><span class="badge ok">live</span></td></tr>
+      <tr><td>Files, trash, FTP accounts, SSH keys</td><td><a href="chapters/files.html">Files &amp; trash</a></td><td><span class="badge ok">live</span></td></tr>
+      <tr><td>SSL — ACME http-01 issue/renew/revoke + manual install</td><td><a href="chapters/ssl.html">SSL certificates</a></td><td><span class="badge ok">live</span> <span class="badge">dns-01 pending</span></td></tr>
+      <tr><td>Per-site PHP — FPM pools, versions, pool config</td><td><a href="chapters/php.html">PHP per site</a></td><td><span class="badge ok">live</span></td></tr>
+      <tr><td>Config engine — versions, rollback, drift ledger</td><td><a href="chapters/config.html">Configuration engine</a></td><td><span class="badge ok">live</span></td></tr>
+      <tr><td>DNS zones — PowerDNS records, DNSSEC, checks, export</td><td><a href="chapters/dns.html">DNS zones</a></td><td><span class="badge ok">live</span> <span class="badge">templates/import planned</span></td></tr>
+      <tr><td>Email, databases, backups</td><td>chapters</td><td><span class="badge">P4 next</span></td></tr>
     </table>
 
     <h2>Screenshots (M0, auto-generated)</h2>

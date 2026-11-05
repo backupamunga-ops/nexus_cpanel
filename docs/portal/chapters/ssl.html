@@ -53,10 +53,12 @@
         same Let's Encrypt account — rate-limit friendly.</li>
     </ol>
     <div class="callout warn">
-      <strong>dns-01 is not yet available</strong> — the DNS write path does
-      not exist yet, so the API refuses <code>challenge_type: dns01</code>
-      with a documented precondition instead of failing mysteriously.
-      Wildcard certificates therefore cannot be issued until it lands.
+      <strong>dns-01 is still pending</strong> — the DNS write path now exists
+      (B06: PowerDNS zones + records, ADR-0012), but the ACME client upgrade
+      to dns-01 challenges is next in the queue. Until it lands the API
+      refuses <code>challenge_type: dns01</code> with a documented
+      precondition instead of failing mysteriously, and wildcard certificates
+      remain unavailable.
     </div>
 
     <h2>Manual installation <span class="badge ok">live in the panel</span></h2>

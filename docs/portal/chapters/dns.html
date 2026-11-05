@@ -3,51 +3,137 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DNS · NexusPanel Docs</title>
+  <title>DNS zones · NexusPanel Docs</title>
   <link rel="stylesheet" href="../assets/style.css">
 </head>
 <body>
 <div class="portal">
   <aside>
     <div class="brand">NexusPanel Docs</div>
-    <div class="tag">v0.1.0-m0 · preview</div>
-    <div class="group">Start here</div>
+    <div class="tag">v0.1.0 · P4 in progress</div>
+    <div class="group">Using the panel</div>
     <nav>
-      <a href="getting-started.html">Getting started</a>
-      <a href="first-account.html">Your first hosting account</a>
-    </nav>
-    <div class="group">Admin guide</div>
-    <nav>
-      <a href="accounts.html">Accounts & packages</a>
-      <a href="audit.html">Audit log & chain</a>
+      <a href="accounts.html">Accounts &amp; packages</a>
+      <a href="sites.html">Sites &amp; domains</a>
+      <a href="files.html">Files &amp; trash</a>
+      <a href="dns.html">DNS zones</a>
+      <a href="ssl.html">SSL certificates</a>
     </nav>
     <div class="back"><a href="../index.html">← Documentation home</a></div>
   </aside>
   <main>
-    <h1>DNS</h1>
+    <h1>DNS zones</h1>
     <p class="lede">
-      This chapter opens with its build phase. The scope below is committed in
-      the master specification; nothing here is live in the M0 preview.
+      Authoritative DNS via PowerDNS on the node. The panel never edits zone
+      data itself — every change goes through the privileged agent to the
+      PowerDNS API, bumps the SOA serial, and lands in the hash-chained audit
+      log. PowerDNS is the single authority; the panel keeps a mirror for
+      listing and permission checks (ADR-0012).
     </p>
 
-    <p><span class="badge">planned for P4</span></p>
-
-    <h2>Planned scope</h2>
+    <h2>Zones <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Open <strong>DNS</strong>, pick a hosting account, and create a zone.
+      Two seeding paths, both explicit:
+    </p>
     <ul>
-      <li>PowerDNS zones, records and templates</li>
-      <li>Import/export and propagation checks</li>
-      <li>DNSSEC with ZSK/KSK management</li>
+      <li><strong>With a seed IPv4</strong> — the zone is created with an
+        <code>@ A</code> record pointing at the address you entered plus a
+        <code>www CNAME</code>; the panel never guesses the server's address
+        for you.</li>
+      <li><strong>With no seed</strong> — the nameserver seeds a conventional
+        SOA (<code>ns1.&lt;zone&gt;</code>, <code>hostmaster.&lt;zone&gt;</code>)
+        and the response <em>tells you it did</em>, so you can correct it if
+        your NS plan differs.</li>
+    </ul>
+    <p>
+      Deleting a zone removes it from PowerDNS first (agent-first
+      provisioning: a failed node call leaves the panel untouched) and then
+      soft-deletes the mirror rows. Zone deletion is audited with who, when,
+      and which zone.
+    </p>
+
+    <h2>Records <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Record types <code>A</code>, <code>AAAA</code>, <code>CNAME</code>,
+      <code>MX</code>, <code>TXT</code>, <code>SRV</code>, <code>CAA</code>,
+      <code>NS</code>. Names are relative to the zone (<code>www</code>,
+      <code>a.b</code>, <code>*.sub</code>) or absolute with a trailing dot —
+      an absolute name outside the zone is rejected, not silently relocated.
+      The server shape-validates every value (IPv4/IPv6 parsing, hostname
+      shape, MX priority, SRV triple, CAA grammar, TTL 60–604800) and the
+      nameserver validates again — errors from PowerDNS surface verbatim.
+    </p>
+    <p>
+      Every add/edit/delete is one full-set diff against the live zone: the
+      panel recomputes the desired record set, the agent diffs it against
+      PowerDNS's current state, and one patch applies the result. This means
+      out-of-band edits made directly inside PowerDNS are reconciled by your
+      next panel save instead of silently diverging. The SOA rrset is
+      <strong>never</strong> touched by record edits — the serial is owned by
+      the nameserver (<code>soa_edit_api=DEFAULT</code> bumps it on every
+      patch, so secondaries and caches track changes).
+    </p>
+
+    <h2>DNSSEC <span class="badge ok">live in the panel</span></h2>
+    <p>
+      <em>Enable DNSSEC</em> runs <code>pdnsutil secure-zone</code> and shows
+      the resulting <strong>DS record</strong> — exactly the string your
+      registrar needs — plus the zone's DNSKEYs. If the keys were generated
+      but no material appears, the command fails loudly instead of reporting
+      a secured zone. The DNSSEC card always shows <em>live</em> node state;
+      if the panel's flag and the node ever disagree, the card says so.
+    </p>
+    <div class="callout">
+      Private keys stay inside PowerDNS's own store. Archiving exported key
+      material into the panel's encrypted vault (<code>dnssec_keys</code>) is
+      planned — the honest state today is "keys live on the node; the panel
+      surfaces the public material."
+    </div>
+
+    <h2>Checks and export <span class="badge ok">live in the panel</span></h2>
+    <ul>
+      <li><strong>Zone check</strong> — <code>pdnsutil check-zone</code>,
+        findings shown verbatim; <code>[Error]</code> lines flip the verdict.</li>
+      <li><strong>Propagation check</strong> — for every A/AAAA/TXT/CNAME
+        record the panel queries public resolvers (1.1.1.1, 8.8.8.8 by
+        default) and reports <em>per resolver</em>:
+        <code>match</code>, <code>mismatch</code>, <code>missing</code>
+        (no answer yet), or <code>timeout</code>. Nothing is flattened into a
+        single fake "propagated ✓". This runs in the control plane on purpose
+        (ADR-0012) — asking resolvers is not a privileged node operation.</li>
+      <li><strong>Export</strong> — the zone in AXFR transfer format, ready
+        for BIND-style import elsewhere.</li>
     </ul>
 
-    <div class="callout">
-      Docs ship together with the feature (Definition of Done, BUILD_PLAN §1) —
-      when dns goes live, this page gets full procedures and
-      regenerated screenshots in the same merge.
+    <h2>Node configuration</h2>
+    <p>
+      The agent talks to PowerDNS over its local HTTP API. Configure once per
+      node:
+    </p>
+    <ul>
+      <li><code>NEXUSAGENT_PDNS_API_URL</code> — default
+        <code>http://127.0.0.1:8081/api/v1</code>;</li>
+      <li><code>NEXUSAGENT_PDNS_API_KEY</code> — the API key; without it,
+        dns commands fail with a documented precondition instead of
+        pretending;</li>
+      <li><code>NEXUSAGENT_PDNS_SERVER_ID</code> — default
+        <code>localhost</code>.</li>
+    </ul>
+
+    <div class="callout warn">
+      <strong>Not yet built (honest list):</strong> zone templates and BIND
+      file <em>import</em> (the API spec's <code>/dns/templates</code> and
+      <code>/dns/zones/{id}/import</code> — the export side is live),
+      secondary-DNS/AXFR serving, reverse-DNS handling, and dns-01 wildcard
+      certificates (the write path exists now; the ACME client upgrade is
+      next). The <code>dnssec_keys</code> table is pre-laid but unwired — see
+      the DNSSEC note above.
     </div>
 
     <div class="pager">
       <a href="../index.html">← Documentation home</a>
-      <a href="audit.html">Audit log &amp; chain →</a>
+      <a href="ssl.html">SSL certificates →</a>
     </div>
   </main>
 </div>
