@@ -11,6 +11,7 @@ const NAV: Array<{ href: string; label: string; adminOnly?: boolean }> = [
   { href: '/dns', label: 'DNS' },
   { href: '/mail', label: 'Email' },
   { href: '/databases', label: 'Databases' },
+  { href: '/backups', label: 'Backups' },
   { href: '/accounts', label: 'Accounts' },
   { href: '/packages', label: 'Packages', adminOnly: true },
   { href: '/resellers', label: 'Resellers', adminOnly: true },
