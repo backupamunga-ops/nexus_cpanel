@@ -48,6 +48,7 @@ model User {
   notifications__user_id  Notification[]  @relation("notifications.user_id")
   migration_jobs__initiated_by_user_id  MigrationJob[]  @relation("migration_jobs.initiated_by_user_id")
   extensions__installed_by_user_id  Extension[]   @relation("extensions.installed_by_user_id")
+  @@map("users")
 }
 
 model UserSession {
@@ -62,6 +63,7 @@ model UserSession {
   expires_at        DateTime      @db.Timestamptz(6)
   revoked_at        DateTime?     @db.Timestamptz(6)
   user              User          @relation("user_sessions.user_id", fields: [user_id], references: [id], onDelete: Cascade)
+  @@map("user_sessions")
   @@index([user_id, revoked_at])
 }
 
@@ -77,6 +79,7 @@ model ApiToken {
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   revoked_at        DateTime?     @db.Timestamptz(6)
   user              User          @relation("api_tokens.user_id", fields: [user_id], references: [id], onDelete: Cascade)
+  @@map("api_tokens")
   @@index([user_id, revoked_at])
 }
 
@@ -95,6 +98,7 @@ model Package {
   updated_at        DateTime      @default(now()) @db.Timestamptz(6)
   deleted_at        DateTime?     @db.Timestamptz(6)
   hosting_accounts__package_id  HostingAccount[]  @relation("hosting_accounts.package_id")
+  @@map("packages")
 }
 
 model HostingAccount {
@@ -131,6 +135,7 @@ model HostingAccount {
   trash_entries__hosting_account_id  TrashEntry[]  @relation("trash_entries.hosting_account_id")
   audit_entries__hosting_account_id  AuditEntry[]  @relation("audit_entries.hosting_account_id")
   migration_jobs__target_account_id  MigrationJob[]  @relation("migration_jobs.target_account_id")
+  @@map("hosting_accounts")
   @@index([reseller_id])
   @@index([parent_account_id])
 }
@@ -146,6 +151,7 @@ model UserHostingAccountAccess {
   user              User          @relation("user_hosting_account_access.user_id", fields: [user_id], references: [id], onDelete: Cascade)
   hosting_account   HostingAccount  @relation("user_hosting_account_access.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
   granted_by_user   User?         @relation("user_hosting_account_access.granted_by_user_id", fields: [granted_by_user_id], references: [id], onDelete: NoAction)
+  @@map("user_hosting_account_access")
   @@index([hosting_account_id])
 }
 
@@ -164,6 +170,7 @@ model Reseller {
   hosting_account   HostingAccount  @relation("resellers.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
   parent_reseller   Reseller?     @relation("resellers.parent_reseller_id", fields: [parent_reseller_id], references: [id], onDelete: NoAction)
   resellers__parent_reseller_id  Reseller[]    @relation("resellers.parent_reseller_id")
+  @@map("resellers")
   @@index([parent_reseller_id])
 }
 
@@ -187,6 +194,7 @@ model Domain {
   installed_applications__domain_id  InstalledApplication[]  @relation("installed_applications.domain_id")
   git_deployments__domain_id  GitDeployment[]  @relation("git_deployments.domain_id")
   staging_environments__source_domain_id  StagingEnvironment[]  @relation("staging_environments.source_domain_id")
+  @@map("domains")
   @@index([hosting_account_id])
 }
 
@@ -199,6 +207,7 @@ model Subdomain {
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   deleted_at        DateTime?     @db.Timestamptz(6)
   domain            Domain        @relation("subdomains.domain_id", fields: [domain_id], references: [id], onDelete: Cascade)
+  @@map("subdomains")
 }
 
 model DomainAliase {
@@ -208,6 +217,7 @@ model DomainAliase {
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   deleted_at        DateTime?     @db.Timestamptz(6)
   domain            Domain        @relation("domain_aliases.domain_id", fields: [domain_id], references: [id], onDelete: Cascade)
+  @@map("domain_aliases")
 }
 
 model Redirect {
@@ -220,6 +230,7 @@ model Redirect {
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   deleted_at        DateTime?     @db.Timestamptz(6)
   domain            Domain        @relation("redirects.domain_id", fields: [domain_id], references: [id], onDelete: Cascade)
+  @@map("redirects")
 }
 
 model MailDomain {
@@ -233,6 +244,7 @@ model MailDomain {
   mailboxes__mail_domain_id  Mailboxe[]    @relation("mailboxes.mail_domain_id")
   mail_aliases__mail_domain_id  MailAliase[]  @relation("mail_aliases.mail_domain_id")
   mailing_lists__mail_domain_id  MailingList[]  @relation("mailing_lists.mail_domain_id")
+  @@map("mail_domains")
   @@index([hosting_account_id])
 }
 
@@ -249,6 +261,7 @@ model Mailboxe {
   deleted_at        DateTime?     @db.Timestamptz(6)
   mail_domain       MailDomain    @relation("mailboxes.mail_domain_id", fields: [mail_domain_id], references: [id], onDelete: Cascade)
   autoresponders__mailbox_id  Autoresponder[]  @relation("autoresponders.mailbox_id")
+  @@map("mailboxes")
 }
 
 model MailAliase {
@@ -260,6 +273,7 @@ model MailAliase {
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   deleted_at        DateTime?     @db.Timestamptz(6)
   mail_domain       MailDomain    @relation("mail_aliases.mail_domain_id", fields: [mail_domain_id], references: [id], onDelete: Cascade)
+  @@map("mail_aliases")
 }
 
 model Autoresponder {
@@ -271,6 +285,7 @@ model Autoresponder {
   ends_at           DateTime?     @db.Timestamptz(6)
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   mailbox           Mailboxe      @relation("autoresponders.mailbox_id", fields: [mailbox_id], references: [id], onDelete: Cascade)
+  @@map("autoresponders")
 }
 
 model MailingList {
@@ -282,6 +297,7 @@ model MailingList {
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   deleted_at        DateTime?     @db.Timestamptz(6)
   mail_domain       MailDomain    @relation("mailing_lists.mail_domain_id", fields: [mail_domain_id], references: [id], onDelete: Cascade)
+  @@map("mailing_lists")
 }
 
 model AccountSmtpRelayConfig {
@@ -293,6 +309,7 @@ model AccountSmtpRelayConfig {
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   updated_at        DateTime      @default(now()) @db.Timestamptz(6)
   hosting_account   HostingAccount  @relation("account_smtp_relay_config.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
+  @@map("account_smtp_relay_config")
 }
 
 model DnZone {
@@ -307,6 +324,7 @@ model DnZone {
   hosting_account   HostingAccount  @relation("dns_zones.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
   dns_records__zone_id  DnRecord[]    @relation("dns_records.zone_id")
   dnssec_keys__zone_id  DnssecKey[]   @relation("dnssec_keys.zone_id")
+  @@map("dns_zones")
   @@index([hosting_account_id])
 }
 
@@ -316,6 +334,7 @@ model DnZoneTemplate {
   description       String?
   records           Json
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  @@map("dns_zone_templates")
 }
 
 model DnRecord {
@@ -333,6 +352,7 @@ model DnRecord {
   updated_at        DateTime      @default(now()) @db.Timestamptz(6)
   deleted_at        DateTime?     @db.Timestamptz(6)
   zone              DnZone        @relation("dns_records.zone_id", fields: [zone_id], references: [id], onDelete: Cascade)
+  @@map("dns_records")
   @@index([zone_id, name, type])
 }
 
@@ -347,6 +367,7 @@ model DnssecKey {
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   retired_at        DateTime?     @db.Timestamptz(6)
   zone              DnZone        @relation("dnssec_keys.zone_id", fields: [zone_id], references: [id], onDelete: Cascade)
+  @@map("dnssec_keys")
 }
 
 model Database {
@@ -361,6 +382,7 @@ model Database {
   deleted_at        DateTime?     @db.Timestamptz(6)
   hosting_account   HostingAccount  @relation("databases.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
   installed_applications__database_id  InstalledApplication[]  @relation("installed_applications.database_id")
+  @@map("databases")
   @@index([hosting_account_id])
 }
 
@@ -375,6 +397,7 @@ model FtpAccount {
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   deleted_at        DateTime?     @db.Timestamptz(6)
   hosting_account   HostingAccount  @relation("ftp_accounts.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
+  @@map("ftp_accounts")
 }
 
 model SshKey {
@@ -386,6 +409,7 @@ model SshKey {
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   deleted_at        DateTime?     @db.Timestamptz(6)
   hosting_account   HostingAccount  @relation("ssh_keys.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
+  @@map("ssh_keys")
 }
 
 model TrashEntry {
@@ -397,6 +421,7 @@ model TrashEntry {
   deleted_at        DateTime      @default(now()) @db.Timestamptz(6)
   purge_after       DateTime      @db.Timestamptz(6)
   hosting_account   HostingAccount  @relation("trash_entries.hosting_account_id", fields: [hosting_account_id], references: [id], onDelete: Cascade)
+  @@map("trash_entries")
   @@index([hosting_account_id, purge_after])
 }
 
@@ -414,6 +439,7 @@ model Certificate {
   auto_renew        Boolean       @default(true)
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   domain            Domain        @relation("certificates.domain_id", fields: [domain_id], references: [id], onDelete: Cascade)
+  @@map("certificates")
 }
 
 model FirewallRule {
@@ -428,6 +454,7 @@ model FirewallRule {
   is_active         Boolean       @default(true)
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   deleted_at        DateTime?     @db.Timestamptz(6)
+  @@map("firewall_rules")
 }
 
 model Fail2banJail {
@@ -439,6 +466,7 @@ model Fail2banJail {
   bantime_sec       Int
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   fail2ban_bans__jail_id  Fail2banBan[]  @relation("fail2ban_bans.jail_id")
+  @@map("fail2ban_jails")
 }
 
 model Fail2banBan {
@@ -449,6 +477,7 @@ model Fail2banBan {
   banned_until      DateTime?     @db.Timestamptz(6)
   reason            String?
   jail              Fail2banJail  @relation("fail2ban_bans.jail_id", fields: [jail_id], references: [id], onDelete: Cascade)
+  @@map("fail2ban_bans")
   @@index([ip, banned_until])
 }
 
@@ -462,6 +491,7 @@ model ModsecurityPolicy {
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   updated_at        DateTime      @default(now()) @db.Timestamptz(6)
   domain            Domain        @relation("modsecurity_policies.domain_id", fields: [domain_id], references: [id], onDelete: Cascade)
+  @@map("modsecurity_policies")
 }
 
 model BackupDestination {
@@ -472,6 +502,7 @@ model BackupDestination {
   is_default        Boolean       @default(false)
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   backup_jobs__destination_id  BackupJob[]   @relation("backup_jobs.destination_id")
+  @@map("backup_destinations")
 }
 
 model BackupJob {
@@ -486,6 +517,7 @@ model BackupJob {
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   destination       BackupDestination  @relation("backup_jobs.destination_id", fields: [destination_id], references: [id], onDelete: NoAction)
   backup_runs__job_id  BackupRun[]   @relation("backup_runs.job_id")
+  @@map("backup_jobs")
 }
 
 model BackupRun {
@@ -500,6 +532,7 @@ model BackupRun {
   verified_at       DateTime?     @db.Timestamptz(6)
   error_message     String?
   job               BackupJob     @relation("backup_runs.job_id", fields: [job_id], references: [id], onDelete: Cascade)
+  @@map("backup_runs")
   @@index([job_id, started_at(sort: Desc)])
 }
 
@@ -516,6 +549,7 @@ model InstalledApplication {
   deleted_at        DateTime?     @db.Timestamptz(6)
   domain            Domain        @relation("installed_applications.domain_id", fields: [domain_id], references: [id], onDelete: Cascade)
   database          Database?     @relation("installed_applications.database_id", fields: [database_id], references: [id], onDelete: NoAction)
+  @@map("installed_applications")
 }
 
 model GitDeployment {
@@ -531,6 +565,7 @@ model GitDeployment {
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   deleted_at        DateTime?     @db.Timestamptz(6)
   domain            Domain        @relation("git_deployments.domain_id", fields: [domain_id], references: [id], onDelete: Cascade)
+  @@map("git_deployments")
 }
 
 model StagingEnvironment {
@@ -542,6 +577,7 @@ model StagingEnvironment {
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   deleted_at        DateTime?     @db.Timestamptz(6)
   source_domain     Domain        @relation("staging_environments.source_domain_id", fields: [source_domain_id], references: [id], onDelete: Cascade)
+  @@map("staging_environments")
 }
 
 model Node {
@@ -558,6 +594,7 @@ model Node {
   services__node_id  Service[]     @relation("services.node_id")
   drift_events__node_id  DriftEvent[]  @relation("drift_events.node_id")
   audit_entries__node_id  AuditEntry[]  @relation("audit_entries.node_id")
+  @@map("nodes")
 }
 
 model Service {
@@ -567,6 +604,7 @@ model Service {
   status            String
   last_checked_at   DateTime?     @db.Timestamptz(6)
   node              Node          @relation("services.node_id", fields: [node_id], references: [id], onDelete: Cascade)
+  @@map("services")
   @@unique([node_id, name])
 }
 
@@ -582,6 +620,7 @@ model ConfigVersion {
   rendered_by_users  User?         @relation("config_versions.rendered_by", fields: [rendered_by], references: [id], onDelete: NoAction)
   config_transactions__from_version_id  ConfigTransaction[]  @relation("config_transactions.from_version_id")
   config_transactions__to_version_id  ConfigTransaction[]  @relation("config_transactions.to_version_id")
+  @@map("config_versions")
   @@unique([target_type, target_id, version])
 }
 
@@ -597,6 +636,7 @@ model ConfigTransaction {
   error_message     String?
   from_version      ConfigVersion?  @relation("config_transactions.from_version_id", fields: [from_version_id], references: [id], onDelete: NoAction)
   to_version        ConfigVersion?  @relation("config_transactions.to_version_id", fields: [to_version_id], references: [id], onDelete: NoAction)
+  @@map("config_transactions")
 }
 
 model DriftEvent {
@@ -610,6 +650,7 @@ model DriftEvent {
   resolved_at       DateTime?     @db.Timestamptz(6)
   resolution        String?
   node              Node          @relation("drift_events.node_id", fields: [node_id], references: [id], onDelete: NoAction)
+  @@map("drift_events")
 }
 
 model AuditEntry {
@@ -631,6 +672,7 @@ model AuditEntry {
   prev_entry        AuditEntry?   @relation("audit_entries.prev_entry_id", fields: [prev_entry_id], references: [id], onDelete: NoAction)
   audit_entries__prev_entry_id  AuditEntry[]  @relation("audit_entries.prev_entry_id")
   audit_chain_heads__last_entry_id  AuditChainHead[]  @relation("audit_chain_heads.last_entry_id")
+  @@map("audit_entries")
   @@index([occurred_at(sort: Desc)])
   @@index([actor_user_id, occurred_at(sort: Desc)])
   @@index([hosting_account_id, occurred_at(sort: Desc)])
@@ -642,6 +684,7 @@ model AuditChainHead {
   last_hash         Bytes
   updated_at        DateTime      @default(now()) @db.Timestamptz(6)
   last_entry        AuditEntry    @relation("audit_chain_heads.last_entry_id", fields: [last_entry_id], references: [id], onDelete: NoAction)
+  @@map("audit_chain_heads")
 }
 
 model JobMetadata {
@@ -657,6 +700,7 @@ model JobMetadata {
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   updated_at        DateTime      @default(now()) @db.Timestamptz(6)
   completed_at      DateTime?     @db.Timestamptz(6)
+  @@map("jobs_metadata")
   @@index([queue_name, status])
   @@index([created_at(sort: Desc)])
 }
@@ -671,6 +715,7 @@ model Webhook {
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   deleted_at        DateTime?     @db.Timestamptz(6)
   webhook_deliveries__webhook_id  WebhookDelivery[]  @relation("webhook_deliveries.webhook_id")
+  @@map("webhooks")
 }
 
 model WebhookDelivery {
@@ -685,6 +730,7 @@ model WebhookDelivery {
   attempted_at      DateTime      @default(now()) @db.Timestamptz(6)
   next_retry_at     DateTime?     @db.Timestamptz(6)
   webhook           Webhook       @relation("webhook_deliveries.webhook_id", fields: [webhook_id], references: [id], onDelete: Cascade)
+  @@map("webhook_deliveries")
   @@index([webhook_id, status])
 }
 
@@ -699,6 +745,7 @@ model Notification {
   read_at           DateTime?     @db.Timestamptz(6)
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   user              User          @relation("notifications.user_id", fields: [user_id], references: [id], onDelete: Cascade)
+  @@map("notifications")
 }
 
 model MigrationJob {
@@ -716,6 +763,7 @@ model MigrationJob {
   target_account    HostingAccount?  @relation("migration_jobs.target_account_id", fields: [target_account_id], references: [id], onDelete: NoAction)
   initiated_by_user  User          @relation("migration_jobs.initiated_by_user_id", fields: [initiated_by_user_id], references: [id], onDelete: NoAction)
   migration_entity_mappings__migration_job_id  MigrationEntityMapping[]  @relation("migration_entity_mappings.migration_job_id")
+  @@map("migration_jobs")
   @@index([status, started_at(sort: Desc)])
 }
 
@@ -730,6 +778,7 @@ model MigrationEntityMapping {
   checksum_target   Bytes?
   notes             String?
   migration_job     MigrationJob  @relation("migration_entity_mappings.migration_job_id", fields: [migration_job_id], references: [id], onDelete: Cascade)
+  @@map("migration_entity_mappings")
   @@index([migration_job_id, status])
 }
 
@@ -746,6 +795,7 @@ model Extension {
   last_error        String?
   installed_by_user  User          @relation("extensions.installed_by_user_id", fields: [installed_by_user_id], references: [id], onDelete: NoAction)
   extension_registrations__extension_id  ExtensionRegistration[]  @relation("extension_registrations.extension_id")
+  @@map("extensions")
 }
 
 model ExtensionRegistration {
@@ -757,4 +807,5 @@ model ExtensionRegistration {
   last_heartbeat_at  DateTime?     @db.Timestamptz(6)
   is_active         Boolean       @default(true)
   extension         Extension     @relation("extension_registrations.extension_id", fields: [extension_id], references: [id], onDelete: Cascade)
+  @@map("extension_registrations")
 }

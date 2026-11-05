@@ -390,6 +390,9 @@ function backRelationLines(t) {
 
 function attrLines(t) {
   const lines = [];
+  // Map the Prisma model back to its real (snake_case) table name — without
+  // this, the generated client queries e.g. "User" instead of "users".
+  lines.push(`  @@map("${t.name}")`);
   if (t.compositePk) lines.push(`  @@id([${t.compositePk.join(', ')}])`);
   for (const u of t.tableUniques) {
     if (u.partial) { skipped.partialUnique += 1; continue; }
