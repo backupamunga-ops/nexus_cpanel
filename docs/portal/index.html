@@ -30,6 +30,7 @@
     </nav>
     <div class="group">Security &amp; admin</div>
     <nav>
+      <a href="chapters/account-security.html">Your account security</a>
       <a href="chapters/security.html">Security model</a>
       <a href="chapters/audit.html">Audit log &amp; chain</a>
       <a href="chapters/api.html">API reference</a>
@@ -56,14 +57,17 @@
       </p>
     </div>
 
-    <h2>What works in M0</h2>
+    <h2>What works</h2>
     <table>
       <tr><th>Capability</th><th>Where</th><th>Status</th></tr>
-      <tr><td>Admin login (Argon2id, JWT + rotating refresh)</td><td><a href="chapters/getting-started.html">Getting started</a></td><td><span class="badge ok">live</span></td></tr>
+      <tr><td>Admin login (Argon2id, JWT + rotating refresh, httpOnly cookie)</td><td><a href="chapters/getting-started.html">Getting started</a></td><td><span class="badge ok">live</span></td></tr>
       <tr><td>Create a hosting account (agent executes the OS work)</td><td><a href="chapters/first-account.html">First account</a></td><td><span class="badge ok">live</span></td></tr>
       <tr><td>Tamper-evident audit log with chain verification</td><td><a href="chapters/audit.html">Audit log</a></td><td><span class="badge ok">live</span></td></tr>
       <tr><td>Live account usage over WebSocket</td><td><a href="chapters/accounts.html">Accounts</a></td><td><span class="badge ok">live</span></td></tr>
-      <tr><td>Sites, mail, DNS, databases, backups</td><td>chapters</td><td><span class="badge">P2–P4</span></td></tr>
+      <tr><td>TOTP two-factor login + backup codes (C2)</td><td><a href="chapters/account-security.html">Account security</a></td><td><span class="badge ok">live</span></td></tr>
+      <tr><td>Session inventory &amp; per-device revocation (C3)</td><td><a href="chapters/account-security.html">Account security</a></td><td><span class="badge ok">live</span></td></tr>
+      <tr><td>Scoped API tokens for automation (C4)</td><td><a href="chapters/account-security.html">Account security</a></td><td><span class="badge ok">live</span></td></tr>
+      <tr><td>Sites, mail, DNS, databases, backups</td><td>chapters</td><td><span class="badge">P3–P4</span></td></tr>
     </table>
 
     <h2>Screenshots (M0, auto-generated)</h2>

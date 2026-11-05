@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your account security · NexusPanel Docs</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="portal">
+  <aside>
+    <div class="brand">NexusPanel Docs</div>
+    <div class="tag">v0.1.0-m0 · preview</div>
+    <div class="group">Start here</div>
+    <nav>
+      <a href="getting-started.html">Getting started</a>
+      <a href="first-account.html">Your first hosting account</a>
+    </nav>
+    <div class="group">Security &amp; admin</div>
+    <nav>
+      <a class="active" href="account-security.html">Your account security</a>
+      <a href="security.html">Security model</a>
+      <a href="audit.html">Audit log &amp; chain</a>
+    </nav>
+    <div class="back"><a href="../index.html">← Documentation home</a></div>
+  </aside>
+  <main>
+    <h1>Your account security</h1>
+    <p class="lede">
+      Second-factor authentication, device sessions, and scoped API tokens —
+      the security controls that protect <em>your login</em> rather than your
+      hosting accounts. Everything on this page is enforced server-side and
+      hash-chained into the audit log.
+    </p>
+
+    <h2>Sessions &amp; devices <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Every sign-in creates its own session with a 7-day rotating refresh
+      secret, bound to your browser's device fingerprint and stored only as a
+      SHA-256 hash. Open <strong>Sessions</strong> in the sidebar to see every
+      live session: which browser, which IP, when it was last used. The
+      session you are using right now is marked <span class="badge">this device</span>.
+    </p>
+    <ul>
+      <li><strong>Revoke a device</strong> — its refresh secret dies immediately;
+        the next access-token expiry (≤ 15 minutes) ends its access.</li>
+      <li><strong>Sign out</strong> on the current device revokes that session.</li>
+      <li><strong>Reuse detection</strong> — a refresh token that was already
+        rotated and comes back is treated as theft: <em>every</em> session of
+        your user is revoked and the event is audited as
+        <code>auth.session.reuse_detected</code>.</li>
+    </ul>
+    <div class="callout">
+      The panel's refresh secret lives in an <code>httpOnly</code>,
+      <code>SameSite=Strict</code> cookie scoped to the auth endpoints. Page
+      scripts can neither read nor exfiltrate it; cross-site requests never
+      carry it. This closes the token-theft path that
+      <code>localStorage</code>-based panels have.
+    </div>
+
+    <h2>Two-factor authentication <span class="badge ok">live</span></h2>
+    <p>
+      NexusPanel supports TOTP (RFC 6238, the same standard as Google
+      Authenticator, Aegis or 1Password) plus ten one-time backup codes.
+      When 2FA is enabled, the sign-in form asks for a 6-digit code after
+      your password; a backup code works in the same field and is burned on
+      use. A wrong second factor counts as a failed login attempt — five in
+      a row lock the account for 15 minutes, so the lockout protects the
+      second factor too.
+    </p>
+    <p>
+      Enrollment and management are currently API-driven (the settings screen
+      lands with the next P2 batch). With an interactive session:
+    </p>
+    <pre><code>POST /api/v1/auth/2fa/setup          → secret + otpauth:// URI (scan into your app)
+POST /api/v1/auth/2fa/verify         {"code": "123456"}   → enables 2FA, returns 10 backup codes
+GET  /api/v1/auth/2fa/backup-codes   header X-Confirm-Password: …  → regenerate (old ones burn)
+POST /api/v1/auth/2fa/disable        {"password": "…"}</code></pre>
+    <p>
+      Secrets at rest are AES-256-GCM encrypted with a key that lives
+      <em>outside</em> the database (<code>CP_SECRETS_KEY</code>); a
+      database dump alone reveals neither TOTP secrets nor backup codes.
+      Backup codes are Argon2id-hashed on top.
+    </p>
+
+    <h2>API tokens <span class="badge ok">live via API</span></h2>
+    <p>
+      Automation credentials for CI, scripts and the future SDK/CLI. A token
+      is an opaque <code>npt_…</code> secret that is shown exactly once and
+      stored only as a SHA-256 hash. A token can do <em>nothing more than
+      its scopes</em>, and never more than its owner could do interactively —
+      even its owner's admin rights do not leak through. Credential
+      management itself (create/rotate/revoke) is session-only: a stolen
+      automation token cannot mint new credentials or disable your 2FA.
+    </p>
+    <pre><code>POST   /api/v1/tokens            {"name","scopes":["account:list","audit:read"],"expires_at":…}
+POST   /api/v1/tokens/{id}/rotate                    → new secret, original expiry kept
+DELETE /api/v1/tokens/{id}                           → revoke (idempotent)</code></pre>
+    <p>
+      Send it as <code>Authorization: Bearer npt_…</code>. Unknown or revoked
+      secrets, expired tokens, and tokens from disabled owners all fail with
+      the same uniform 401 — no oracle — while rejected-but-known tokens are
+      audited as <code>api_token.auth_rejected</code>.
+    </p>
+
+    <h2>What each event looks like in the audit log</h2>
+    <table>
+      <tr><th>Action</th><th>Audit operation</th></tr>
+      <tr><td>Sign-in (with second factor)</td><td><code>auth.login</code> · <code>second_factor: totp|backup_code</code></td></tr>
+      <tr><td>Sign-in without a code when 2FA is on</td><td><code>auth.login</code> · reason <code>totp_missing</code></td></tr>
+      <tr><td>Refresh rotation / reuse detection</td><td><code>auth.refresh</code> / <code>auth.session.reuse_detected</code></td></tr>
+      <tr><td>Session revoked</td><td><code>auth.session.revoke</code></td></tr>
+      <tr><td>Token rejected despite valid hash</td><td><code>api_token.auth_rejected</code></td></tr>
+    </table>
+
+    <div class="pager">
+      <a href="../index.html">← Documentation home</a>
+      <a href="audit.html">Audit log &amp; chain →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>
