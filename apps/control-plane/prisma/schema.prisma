@@ -542,6 +542,9 @@ model BackupJob {
   destination_id    String        @db.Uuid
   schedule          String
   retention_days    Int           @default(30)
+  keep_daily        Int           @default(7)
+  keep_weekly       Int           @default(4)
+  keep_monthly      Int           @default(6)
   is_enabled        Boolean       @default(true)
   created_at        DateTime      @default(now()) @db.Timestamptz(6)
   destination       BackupDestination  @relation("backup_jobs.destination_id", fields: [destination_id], references: [id], onDelete: NoAction)

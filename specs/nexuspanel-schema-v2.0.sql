@@ -498,8 +498,11 @@ CREATE TABLE backup_jobs (
   scope               text NOT NULL,            -- server | account | site | database
   scope_id            uuid,                     -- null for server-wide
   destination_id      uuid NOT NULL REFERENCES backup_destinations(id),
-  schedule            text NOT NULL,            -- cron expression
+  schedule            text NOT NULL,            -- cron expression (fires with the B13 job framework)
   retention_days      integer NOT NULL DEFAULT 30,
+  keep_daily          integer NOT NULL DEFAULT 7,   -- GFS: daily restore points kept
+  keep_weekly         integer NOT NULL DEFAULT 4,   -- GFS: weekly restore points kept
+  keep_monthly        integer NOT NULL DEFAULT 6,   -- GFS: monthly restore points kept
   is_enabled          boolean NOT NULL DEFAULT true,
   created_at          timestamptz NOT NULL DEFAULT now()
 );
