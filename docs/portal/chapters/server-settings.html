@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Server settings · NexusPanel Docs</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="portal">
+  <aside>
+    <div class="brand">NexusPanel Docs</div>
+    <div class="tag">v0.1.0-m0 · preview</div>
+    <div class="group">Admin guide</div>
+    <nav>
+      <a href="accounts.html">Accounts &amp; packages</a>
+      <a href="resellers.html">Resellers</a>
+      <a class="active" href="server-settings.html">Server settings</a>
+      <a href="audit.html">Audit log &amp; chain</a>
+    </nav>
+    <div class="back"><a href="../index.html">← Documentation home</a></div>
+  </aside>
+  <main>
+    <h1>Server settings</h1>
+    <p class="lede">
+      Server settings are the admin-editable, platform-wide configuration
+      values — instance naming, security policy numbers, audit retention.
+      They live in a single <code>system_settings</code> table backed by a
+      <strong>whitelist</strong>: the control plane owns a catalog of typed
+      definitions, and nothing outside that catalog can exist. This chapter
+      covers what is live today and how the values relate to the runtime.
+    </p>
+
+    <h2>The whitelist is the safety model <span class="badge ok">live in the panel</span></h2>
+    <p>
+      Open <strong>Server settings</strong> in the sidebar (server admins
+      only). The form is generated from what the server reports — type,
+      bounds, default and current value for each key — so the UI can never
+      offer an input the API would reject. There is no free-form key field:
+      unknown keys are refused on read with 404 and on write with 400, so a
+      typo'd key can never silently enforce nothing. Values are validated
+      fail-closed (booleans are strict, integers carry explicit minimums and
+      maximums, strings are trimmed and length-bounded) and a rejected save
+      shows the exact rule that was broken.
+    </p>
+    <ul>
+      <li><strong>Non-secret by definition</strong> — only configuration
+        lives here. Secrets (JWT key, TOTP envelope key, SMTP credentials)
+        stay in env/secret files, outside the database.</li>
+      <li><strong>Every change is audited</strong> as
+        <code>settings.update</code> in the tamper-evident chain — with the
+        acting admin, the previous value and the new value, written in the
+        same transaction as the row itself. A config change without its
+        audit entry is impossible.</li>
+    </ul>
+
+    <h2>Stored vs enforced — an honest distinction <span class="badge">D-11</span></h2>
+    <p>
+      Each setting carries an explicit enforcement badge in the UI. Values
+      marked <span class="badge ok">enforced</span> are read by the running
+      system today. Values marked <span class="badge">stored — not yet
+      enforced</span> are validated and audited but the runtime seam that
+      reads them has not landed yet: the login path currently takes its
+      lockout and session constants from environment variables
+      (<code>LOCKOUT_THRESHOLD</code>, <code>LOCKOUT_MINUTES</code>,
+      <code>REFRESH_TTL_DAYS</code>) and the 12-character password minimum
+      is fixed in code. Wiring those seams to read stored settings — with
+      env as fallback — lands incrementally, and each flip is a small,
+      individually auditable change. Deliberately, the panel never pretends
+      a stored number is already protecting anyone.
+    </p>
+    <div class="callout">
+      Decision D-11 (master documentation §10): server settings are
+      <em>store-first</em> — validated, audited values now; enforcement
+      seams wired incrementally. This keeps config management out of the
+      security-critical login path until each seam can be changed with its
+      own tests.
+    </div>
+
+    <h2>Current catalog <span class="badge ok">live</span></h2>
+    <ul>
+      <li><code>platform.instance_name</code> — display name (1–64 chars).</li>
+      <li><code>platform.login_notice</code> — optional sign-in banner text (≤ 200 chars).</li>
+      <li><code>security.totp_required</code> — require 2FA for all users (pending enforcement).</li>
+      <li><code>security.max_failed_logins</code> — lockout threshold, 3–10 (runtime default 5).</li>
+      <li><code>security.lockout_minutes</code> — lockout duration, 5–1440 (runtime default 15).</li>
+      <li><code>security.password_min_length</code> — 8–128 (runtime fixed at 12).</li>
+      <li><code>security.session_ttl_days</code> — refresh-token lifetime, 1–30 (runtime default 7).</li>
+      <li><code>audit.retention_days</code> — audit-trail retention, 30–3650 (default 365; pruning not built).</li>
+    </ul>
+
+    <h2>API surface <span class="badge ok">live</span></h2>
+    <pre><code>GET    /api/v1/settings               settings:read     (catalog with effective values)
+GET    /api/v1/settings/{key}         settings:read     (404 on unknown key)
+PUT    /api/v1/settings/{key}         settings:write    (400 on unknown key / bad value)</code></pre>
+    <p>
+      <code>settings:read</code> / <code>settings:write</code> are part of
+      the permission vocabulary (C6) and can be granted to scoped API tokens
+      (C4) for automation. Writes are audited as
+      <code>settings.update</code> with <code>from</code> → <code>to</code>.
+    </p>
+  </main>
+</div>
+</body>
+</html>
