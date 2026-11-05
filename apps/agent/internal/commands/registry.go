@@ -89,6 +89,12 @@ func NewRegistry(deps Deps) *Registry {
 	r.m["php.modify_pool"] = r.phpModifyPool
 	r.m["php.delete_pool"] = r.phpDeletePool
 
+	// config.* (§4.5) — P3: inspection half (validate/drift/list_active);
+	// apply already exists via nginx.*/php.* and rollback is a CP flow.
+	r.m["config.validate"] = r.configValidate
+	r.m["config.drift_check"] = r.configDriftCheck
+	r.m["config.list_active"] = r.configListActive
+
 	// nginx.* (§4.7) — P3: vhost lifecycle via the config-apply primitive
 	r.m["nginx.test"] = r.nginxTest
 	r.m["nginx.reload"] = r.nginxReload
@@ -113,6 +119,7 @@ func (r *Registry) Lookup(method string) (rpc.Handler, bool) {
 func (r *Registry) IsReadOnly(method string) bool {
 	switch method {
 	case "account.usage", "account.list", "system.health", "system.info", "ssl.list", "php.list_versions",
+		"config.validate", "config.drift_check", "config.list_active",
 		"filesystem.list", "filesystem.read", "filesystem.usage":
 		return true
 	}
