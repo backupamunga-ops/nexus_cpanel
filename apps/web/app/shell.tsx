@@ -59,7 +59,7 @@ export default function Shell({
         <div style={{ marginTop: 24, color: 'var(--np-muted)', fontSize: 12 }}>
           {version}
           <br />
-          <span className="np-badge">M0 preview</span>
+          <span className="np-badge">P4 preview</span>
         </div>
         {user && (
           <div style={{ marginTop: 16, fontSize: 12, borderTop: '1px solid var(--np-border)', paddingTop: 12 }}>

@@ -37,7 +37,7 @@ export class HealthController {
   @Get('version')
   version(): Record<string, string> {
     return {
-      panel: '0.1.0-m0',
+      panel: '0.4.0-m4 (B01-B09 live)',
       agent_protocol: '1.0',
       schema: '2.0',
       api: 'v1',
