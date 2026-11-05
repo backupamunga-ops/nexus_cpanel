@@ -31,14 +31,15 @@ export default function AccountsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState(false);
-  const [user, setUser] = useState(getUser());
-  const streamRef = useRef<EventsStream | null>(null);
-
+  // Hydration-safe: the session user exists only client-side (localStorage).
+  const [user, setUser] = useState<ReturnType<typeof getUser>>(null);
   useEffect(() => {
+    setUser(getUser());
     if (!getUser()) {
       window.location.href = '/login';
     }
   }, []);
+  const streamRef = useRef<EventsStream | null>(null);
 
   const refresh = useCallback(async (): Promise<Account[]> => {
     try {

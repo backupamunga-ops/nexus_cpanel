@@ -1,13 +1,25 @@
-# e2e/ — End-to-end suites
+# E2E & screenshot rig
 
-Playwright-driven smoke and full suites (build plan §5). The M0 happy path
-(login → create account → audit chain verified → live usage) is the first suite,
-added in P1 against the demo environment with deterministic seed data.
+## Playwright screenshots (WS6 — gaps G-07/G-08)
 
-Layout plan:
+`screenshots.mjs` walks the running stack and regenerates the docs-portal
+screenshots on every UI-affecting merge (Definition of Done):
 
-| Path | Suite |
-|---|---|
-| `m0/` | login, account create, audit verify, usage polling |
-| `smoke/` | per-phase smoke: one green path per shipped feature |
-| `full/` | nightly regression |
+```bash
+# 1. stack: PostgreSQL + agent + control plane (port 3000) + web dev (port 5173)
+npm run dev --workspace apps/web
+# 2. browsers (once)
+npx playwright install chromium
+# 3. shoot — credentials come from the environment, never the repo
+DEV_ADMIN_EMAIL=admin@example.test DEV_ADMIN_PASSWORD='…' node e2e/screenshots.mjs
+```
+
+Output: `docs/portal/static/screenshots/m0/*.png` (committed with the docs).
+
+## Suites
+
+| Suite | When | Status |
+|---|---|---|
+| Screenshot rig | every UI-affecting merge | live |
+| Smoke (login → create account → audit) | every PR | P2 |
+| Full regression + axe a11y | nightly | P2 |

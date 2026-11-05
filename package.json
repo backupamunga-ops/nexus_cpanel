@@ -17,5 +17,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "prisma:gen": "node apps/control-plane/scripts/ddl-to-prisma.mjs specs/nexuspanel-schema-v2.0.sql apps/control-plane/prisma/schema.prisma",
     "prisma:check": "npm run -s prisma:gen && git diff --exit-code -- apps/control-plane/prisma/schema.prisma"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1"
   }
 }
