@@ -46,23 +46,41 @@
           Disk usage joins when the filesystem category lands (P3).</li>
     </ul>
 
-    <span class="badge warn">P2</span>
+    <span class="badge ok">live in P2</span>
     <h2>Packages &amp; quota enforcement</h2>
     <p>
-      In M0 every account is created on the bootstrap <em>Default</em>
-      package — a seam so the flow works before package management exists.
-      P2 brings the real thing:
+      Packages are real now. Server admins manage them on the
+      <strong>Packages</strong> screen (or <code>/api/v1/packages</code>);
+      every account is created on a package, and per-account quota
+      overrides can adjust the merged set at any time.
     </p>
     <ul>
-      <li>Packages CRUD with quota JSON (disk, traffic, mailboxes, databases)
-          and feature flags (PHP versions, shell access).</li>
-      <li>Account lifecycle completion: <code>account.modify</code> (rename,
-          package change, shell), quota changes via
-          <code>account.quota</code> — both commands are already registered
-          on the agent and return a deliberate "not implemented until a later
-          milestone" error today.</li>
+      <li><strong>Fail-closed quota keys</strong> — <code>cpu</code>
+          (0.1-core granularity, ≤ 64), <code>mem_mb</code> (≤ 1 TiB),
+          <code>disk_mb</code> (≤ 10 TiB), <code>inodes</code>,
+          <code>processes</code> (≤ 4096). Unknown keys are REJECTED at
+          creation — a typo'd key would silently enforce nothing.</li>
+      <li><strong>Real agent enforcement</strong> — quotas reach the node as
+          cgroup v2 limits via <code>account.quota</code> /
+          <code>account.modify</code> (both commands are fully implemented
+          now — no more stubs).</li>
+      <li><strong>Honest override semantics</strong> — <code>PATCH
+          /accounts/{id}</code> with <code>{"quotas": …}</code> sends the
+          MERGED set (package ← override) to the agent, persists only the
+          override partial, and the audit entry records applied AND skipped
+          keys. The disk/inodes enforcement gap is explicit, never silent.</li>
+      <li><strong>Soft deletes</strong> — a package referenced by live
+          accounts cannot be deleted (409 with the count); history is
+          retained.</li>
+    </ul>
+
+    <span class="badge warn">upcoming in P2</span>
+    <h2>Access sharing &amp; resellers</h2>
+    <ul>
       <li>Access sharing: delegate account administration to other panel
-          users without sharing your login.</li>
+          users without sharing your login (the permission machinery —
+          <code>user_hosting_account_access</code> roles — is already
+          enforced on every account route).</li>
       <li>Resellers with nesting, branding and session isolation.</li>
     </ul>
 
