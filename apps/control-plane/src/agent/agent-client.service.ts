@@ -844,6 +844,61 @@ export class AgentClientService {
     return r.result;
   }
 
+  // ---- P4: databases (§4.10, ADR-0015 — mariadb adapter, unix-socket admin) --
+
+  async databaseCreate(input: {
+    engine: string;
+    name: string;
+    user: string;
+    password: string;
+    host?: string;
+    owner_username?: string;
+  }): Promise<{ status: string; engine: string; name: string; user: string; host: string }> {
+    const r = await this.call<{ status: string; engine: string; name: string; user: string; host: string }>(
+      'database.create',
+      input,
+    );
+    return r.result;
+  }
+
+  async databaseDelete(engine: string, name: string, user?: string, host?: string): Promise<{ status: string }> {
+    const r = await this.call<{ status: string }>('database.delete', {
+      engine,
+      name,
+      user: user ?? '',
+      host: host ?? 'localhost',
+    });
+    return r.result;
+  }
+
+  async databaseSize(engine: string, name: string): Promise<{ engine: string; name: string; size_bytes: number; size_mb: number }> {
+    const r = await this.call<{ engine: string; name: string; size_bytes: number; size_mb: number }>('database.size', {
+      engine,
+      name,
+    });
+    return r.result;
+  }
+
+  async databaseDump(engine: string, name: string, outputPath: string, ownerUsername: string): Promise<{ status: string; output: string }> {
+    const r = await this.call<{ status: string; output: string }>('database.dump', {
+      engine,
+      name,
+      output_path: outputPath,
+      owner_username: ownerUsername,
+    });
+    return r.result;
+  }
+
+  async databaseRestore(engine: string, name: string, inputPath: string, ownerUsername: string): Promise<{ status: string }> {
+    const r = await this.call<{ status: string }>('database.restore', {
+      engine,
+      name,
+      input_path: inputPath,
+      owner_username: ownerUsername,
+    });
+    return r.result;
+  }
+
   /** Exposed for tests: the exact bytes that were signed. */
   static signatureInput(
     method: string,

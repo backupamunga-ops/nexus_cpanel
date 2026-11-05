@@ -26,7 +26,7 @@ import { AuditAppender, InjectAudit } from '../audit/audit.service';
  * deleting an in-use package would strand its accounts.
  */
 
-export const QUOTA_KEYS = ['cpu', 'mem_mb', 'disk_mb', 'inodes', 'processes', 'mailbox_count', 'mailbox_quota_mb'] as const;
+export const QUOTA_KEYS = ['cpu', 'mem_mb', 'disk_mb', 'inodes', 'processes', 'mailbox_count', 'mailbox_quota_mb', 'db_count', 'db_size_mb'] as const;
 export type QuotaKey = (typeof QUOTA_KEYS)[number];
 export type QuotaSet = Partial<Record<QuotaKey, number>>;
 
@@ -38,6 +38,8 @@ const QUOTA_LIMITS: Record<QuotaKey, { max: number }> = {
   processes: { max: 4096 },
   mailbox_count: { max: 10_000 }, // B07: mailboxes per account
   mailbox_quota_mb: { max: 1 << 20 }, // B07: per-mailbox cap, 1 TiB (agent cap too)
+  db_count: { max: 1000 }, // B09: databases per account
+  db_size_mb: { max: 10 * (1 << 20) }, // B09: per-database size cap, 10 TiB
 };
 
 const OVER_QUOTA_POLICIES = new Set(['alert', 'throttle', 'suspend']);

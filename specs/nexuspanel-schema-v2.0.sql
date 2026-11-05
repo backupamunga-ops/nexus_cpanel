@@ -342,10 +342,10 @@ CREATE TABLE dnssec_keys (
 CREATE TABLE databases (
   id                  uuid PRIMARY KEY DEFAULT uuid_generate_v7(),
   hosting_account_id  uuid NOT NULL REFERENCES hosting_accounts(id) ON DELETE CASCADE,
-  engine              text NOT NULL,            -- mariadb | mysql | postgres
+  engine              text NOT NULL,            -- mariadb (v1.0; mysql|postgres planned per ADR-0001)
   name                text NOT NULL,
   db_user             text NOT NULL,
-  db_password_hash    bytea NOT NULL,
+  db_password_hash    bytea NOT NULL,           -- SecretBox AES-256-GCM envelope of the credential (ADR-0009/0015) — decrypt at point of use only
   size_mb             integer NOT NULL DEFAULT 0,
   created_at          timestamptz NOT NULL DEFAULT now(),
   deleted_at          timestamptz
