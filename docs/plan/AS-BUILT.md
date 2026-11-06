@@ -7,7 +7,7 @@
 | Version | 2.1 |
 | Date | 2026-11-06 |
 | Status | ACTIVE — reconstructed from `specs/` + git history after the 2026-11-05 sandbox recycle |
-| Repo state | `origin/main` @ `f20abc4` — 106 commits, CI green (4/4 checks) |
+| Repo state | `origin/main` @ `12125bf` — 107 commits, CI green (4/4 checks) |
 | Docs portal | 26 chapters live, v0.6.0 badge, 32-shot screenshot set (`docs/portal/static/screenshots/p4/`) |
 
 > **Provenance & honesty note.** The original working master doc was lost in the sandbox recycle of
