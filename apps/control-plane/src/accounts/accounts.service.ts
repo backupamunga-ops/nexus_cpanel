@@ -120,7 +120,9 @@ export class AccountsService {
 
   async create(username: string, packageId: string, actorUserId?: string): Promise<ManagedAccount> {
     if (!USERNAME_RE.test(username) || RESERVED.has(username)) {
-      throw new BadRequestException('username violates policy');
+      throw new BadRequestException(
+        'username violates policy — use 1-32 chars: lowercase a-z, 0-9 or "-", starting with a letter (e.g. amunga)',
+      );
     }
     const exists = await this.prisma.hostingAccount.findFirst({
       where: { username, deleted_at: null },

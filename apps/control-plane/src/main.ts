@@ -23,8 +23,13 @@ async function bootstrap(): Promise<void> {
     new ValidationPipe({ transform: true, whitelist: true }),
   );
   const port = Number(process.env.PORT || 3000);
-  await app.listen(port, '0.0.0.0');
-  new Logger('bootstrap').log(`control plane listening on :${port}/${prefix} (events: ws)`);
+  // Bind loopback in production (the public origin proxies to 127.0.0.1) —
+  // finding #11 of the live-VM run: the unit shipped without HOST and the API
+  // answered on 0.0.0.0, relying on ufw alone. Dev rigs (no HOST set) keep the
+  // historic all-interfaces behavior so compose/LAN setups don't break.
+  const host = process.env.HOST || '0.0.0.0';
+  await app.listen(port, host);
+  new Logger('bootstrap').log(`control plane listening on ${host}:${port}/${prefix} (events: ws)`);
 }
 
 void bootstrap();
