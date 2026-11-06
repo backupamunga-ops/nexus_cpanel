@@ -94,3 +94,40 @@ attached to the GitHub Release. The panel's updater (P7 follow-up) accepts
 only manifests whose signature verifies against the embedded Rekor
 bundle — unsigned or self-built binaries are a support matter, never an
 update path.
+
+## 7. Public origin (`public-origin <hostname>`)
+
+The 8 install steps leave the web (:5173) and API (:3000) **loopback-only**;
+operators reach the panel over an SSH tunnel. This subcommand puts a TLS
+reverse proxy in front — the standard way to serve the panel on a real
+domain:
+
+- `sudo infra/install.sh public-origin panel.example.com`
+- `sudo infra/install.sh public-origin off` — back to loopback/tunnel-only
+
+Contract:
+
+1. **Proxy = Caddy.** Distro-archive package first, official repo fallback.
+   Caddy was chosen because certificate issuance, renewal, and the
+   HTTP→HTTPS redirect need no operator choreography (decision: ADR-0023).
+2. **Same-origin routing.** `https://<hostname>/api/v1/*` (REST *and* the
+   WebSocket event stream) proxies to `127.0.0.1:3000`; everything else to
+   `127.0.0.1:5173`. The browser never talks to any other origin; both
+   upstreams stay loopback-only.
+3. **DNS honesty gate.** The hostname must resolve to the machine's public
+   address or the run aborts (override for NAT: `FORCE_PUBLIC_ORIGIN=1`).
+   Non-public suffixes (`.local`, `.test`, …) are refused outright.
+4. **Health gate.** The command returns only after
+   `https://<hostname>/api/v1/health` and the web root answer over real TLS
+   (120 s budget covers first issuance).
+5. **Firewall.** ufw allows exactly 22/80/443 — unchanged by this step.
+6. **Hardening headers.** HSTS (1 year), `nosniff`, `same-origin` referrer;
+   `Server` is stripped. Access log lands in
+   `/var/log/caddy/nexuspanel-access.log` (fail2ban fuel for a later batch).
+7. **Reversibility.** Re-running rewrites `/etc/caddy/Caddyfile` (previous
+   version kept as `Caddyfile.bak`); `off` neutralizes it. `uninstall`
+   reports the Caddy removal path but never removes it silently.
+8. **Loopback stays the default.** The panel is reachable without any
+   domain; a public origin is an operator choice, and restricting it to
+   office IPs (Caddy `remote_ip` matcher) is documented in the install
+   guide.

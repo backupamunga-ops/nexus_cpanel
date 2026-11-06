@@ -4,10 +4,10 @@
 
 | Field | Value |
 |---|---|
-| Version | 2.3 |
+| Version | 2.4 |
 | Date | 2026-11-06 |
 | Status | ACTIVE — reconstructed from `specs/` + git history after the 2026-11-05 sandbox recycle |
-| Repo state | `origin/main` — 119 commits, CI green (4/4 checks) |
+| Repo state | `origin/main` — 119 commits, CI green (4/4 checks); public-origin batch (ADR-0023) queued for push at write time |
 | Docs portal | 26 chapters live, v0.6.0 badge, 32-shot screenshot set (`docs/portal/static/screenshots/p4/`) |
 
 > **Provenance & honesty note.** The original working master doc was lost in the sandbox recycle of
@@ -29,6 +29,7 @@
 | Batches B14–B15 (P6) | Complete — app installer/push-to-deploy, migration center |
 | P7 (extensions & release engineering) | **Extension SDK runtime + `nexus-example-reporter` complete** (`f20abc4`) — registration/scope-review/one-time credentials, closed `/api/v1/ext/*` doorway (60/min, metadata-only), signed hooks + heartbeats, sandboxed widgets; release engineering landed — installer spec v1.0 + support matrix published, k6 SLO harness + nightly gate, cosign+SBOM release workflow (C19/C20) |
 | Live-VM acceptance run | **§1 (install.sh first drive) PASSED on real hardware** 2026-11-06 — Ubuntu 26.04.1 VM (Leaseweb): 10 installer findings found and fixed in 9 fix commits (`972034b`…`0199880`), clean end-to-end install, all §1 checks green, reboot survival proven (all 4 units + cgroup root return on their own). Runbook: `docs/runbooks/acceptance-p4-p7.md`; evidence: `/root/acceptance-evidence/01*.log`. Step-by-step guide written from the proven path: `docs/release/INSTALL_GUIDE.md` |
+| Public origin (operator domain) | **`https://server.billucsolutions.co.ke` live on the same VM** 2026-11-06 — new `install.sh public-origin` subcommand (Caddy TLS proxy, ADR-0023 / spec §7); A record hosted at the operator's current DirectAdmin provider; loopback posture unchanged; API re-bound to 127.0.0.1 (finding #11) and `upgrade` now refreshes unit files (finding #11b) |
 | ADRs | ADR-0001 … ADR-0022, all landed (`docs/adr/`) |
 | CI | `agent (Go)` ✅ · `control-plane (NestJS)` ✅ · `web (Next.js)` ✅ · `schema drift (DDL ↔ Prisma)` ✅ |
 | Gates at HEAD | go vet+test ok · jest 424 pass (35 suites) · typecheck ok · permissions:check ok · prisma:check clean · next build ok |
@@ -57,6 +58,7 @@
 | **B15** | Migration center — cPanel cpmove import: analyze → zero-write dry-run → resumable execute → verify (per-entity sha256, byte-for-byte checks), BIND zonefile parser, SKIP always explicit + reason-coded, artifact credentials never imported, report + DNS cutover/rollback plan | `49627f9` | 0020 | gates: jest 396 (13 new), 32-shot set |
 | **P7** | Extension SDK runtime — register → scope review → approve (one-time creds) → operate; closed `/api/v1/ext/*` doorway (60/min, metadata-only resolvers), signed hooks + 60 s heartbeats, sandboxed dashboard widgets; `nexus-example-reporter` reference extension; release engineering: installer spec v1.0 + support matrix, k6 SLO harness + nightly gate, cosign+SBOM release workflow | `f20abc4` | 0021 | gates: jest 424 (28 new) |
 | **P8 / live-VM §1** | install.sh v1.0 first drive on Ubuntu 26.04.1 + installer findings fixed: 26.04 accepted + adaptive PostgreSQL (PGDG→archive ≥16), adaptive Go (archive-first, tarball fallback), gpg --batch (no tty), npm unbundled on archive nodejs, build stage logs, wait_health quoted tests, keys 0640 root:nexuspanel (unprivileged API must read), service group before keys dir, ufw SIGPIPE port probe, web unit hoisted-next path + health gates, Requires→Wants cascade fix; step-by-step `docs/release/INSTALL_GUIDE.md` | `972034b`, `b24c4b7`, `34d0e49`, `dd03614`, `b36e887`, `decabb2`, `f63c604`, `d1f5024`, `0199880` | — | live-VM PASS: 01-install.log, 01b/01c checks, reboot survival |
+| **P8 / public origin** | `install.sh public-origin <hostname>` + `off` — Caddy auto-HTTPS proxy on 80/443, same-origin `/api/v1` routing (REST + ws), DNS honesty gate, 120 s ACME health gate, hardening headers + access log; API `HOST` env bound to 127.0.0.1 in the unit (finding #11); `upgrade` re-installs unit files (finding #11b); actionable username-policy error; spec §7 + ADR-0023 + guide §7 | this batch (push pending) | 0023 | live-VM PASS: 01d-public-origin.log; `https://server.billucsolutions.co.ke` verified from an external network |
 
 ---
 
@@ -67,6 +69,7 @@ Verified by automated gates and CI on the dev rig. **Not yet** exercised on a re
 | Acceptance item (from plan) | State |
 |---|---|
 | P7 — installer E2E on a live VM (install.sh first drive + reboot survival) | **accepted on live VM 2026-11-06** — 10 findings fixed en route; evidence `01-install.log`, `01b-install-checks.log`, `01c-reboot-checks.log` |
+| P8 — public origin (panel on a real domain with TLS) | **accepted on live VM 2026-11-06** — `https://server.billucsolutions.co.ke`, evidence `01d-public-origin.log` |
 | B06 — wildcard-cert DNS-01 / real PowerDNS on VM | dev-rig verified — live-VM acceptance pending (needs an operator domain delegated to the VM) |
 | B07/B08 — real inbound/outbound mail delivery, relay through provider | dev-rig verified — live-VM acceptance pending (needs domain + relay provider) |
 | B09 — live MariaDB 11 round trip | dev-rig verified — live-VM acceptance pending |
@@ -79,10 +82,15 @@ Verified by automated gates and CI on the dev rig. **Not yet** exercised on a re
 
 **Run status:** the run started 2026-11-06 on the live VM (95.211.164.33,
 Ubuntu 26.04.1) — §1 install **PASSED** (10 findings fixed, reboot survival
-proven). Continue in dependency order: B09 MariaDB → B11 firewall → B12
-WAF/ClamAV prep → P7 extension + k6 SLO are runnable now; B06/B07/B08 (need
-an operator domain + relay), B10 (S3 bucket), B15 (source cPanel) wait on
-operator resources.
+proven) and the operator domain cutover **PASSED** (`public-origin`, finding
+#11 fixed en route). Continue in dependency order: B09 MariaDB → B11
+firewall → B12 WAF/ClamAV prep → P7 extension + k6 SLO are runnable now;
+B07/B08 (need a relay provider), B10 (S3 bucket), B15 (source cPanel) wait
+on operator resources; B06 needs a zone actually delegated to the VM's
+PowerDNS (`billucsolutions.co.ke` currently stays delegated to the operator's
+existing DirectAdmin host, which is fine — any spare subdomain, e.g.
+`nexus-test.billucsolutions.co.ke` with NS records at tela-host, would make
+B06 real).
 
 ---
 
@@ -112,6 +120,7 @@ operator resources.
 | 0020 | Migration center (cpmove, verify-first) |
 | 0021 | Extension SDK runtime (out-of-process, scope-reviewed) |
 | 0022 | Installer ships the web origin as a systemd unit (not a static export) |
+| 0023 | Public origin: bundled Caddy TLS proxy (`public-origin`), same-origin routing, loopback default preserved |
 
 ---
 
@@ -134,12 +143,22 @@ operator resources.
 1. **Continue the live-VM acceptance run** (`docs/runbooks/acceptance-p4-p7.md`,
    §2–§10) — next runnable without operator resources: B09 MariaDB round
    trip, B11 firewall/fail2ban, B12 WAF/ClamAV (nginx+ModSecurity install),
-   P7 extension ladder + k6 SLO. B06/B07/B08/B10/B15 need domain, relay,
-   S3 and a source cPanel from the operator.
+   P7 extension ladder + k6 SLO. B07/B08 need a relay provider, B10 an S3
+   bucket, B15 a source cPanel; B06 needs a zone delegated to the VM's
+   PowerDNS (a spare subdomain at the operator's current DNS host is
+   enough — the panel's own origin does not depend on it).
 2. **P7 remainder:** per-call confirmation queue for extension write scopes
    (v1.x trust levels, ADR-0021 §2), extension storage namespaces (SDK spec
    §8), GA tag + changelog.
 3. **First release:** push a `v*` tag — `release.yml` builds the agent binary,
    SBOMs and keyless cosign signatures; no secrets setup required.
-4. Standing: revoke the tokens **and the VM root password** exposed in chat;
+4. **P8 UI backlog (operator feedback 2026-11-06, standing DirectAdmin-simple
+   standard):** panel-user invite/management page — today Sharing can only
+   grant to logins that already exist and v1 ships no way to create any
+   (the seeded super admin is the only one), so delegated access is
+   unreachable in practice until this lands; Node.js/Python application
+   pages in the DirectAdmin mold; flat central DNS zone editor (one table:
+   Name · TTL · Type · Value); inline username-policy hint on the account
+   form (the API error is already actionable).
+5. Standing: revoke the tokens **and the VM root password** exposed in chat;
    issue a fresh one-time token for the next push.

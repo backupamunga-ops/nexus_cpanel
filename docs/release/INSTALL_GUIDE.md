@@ -114,6 +114,40 @@ Keep that window open, then browse to: **http://localhost:5173**
 Log in with the admin email + password you chose in step 3. You will land on
 the dashboard (grouped icon sidebar, light/dark toggle, top-right).
 
+## 7. Put the panel on your own domain (optional, recommended)
+
+The tunnel works, but a panel you use every day deserves a real address.
+With one command the installer puts an automatic-HTTPS reverse proxy in
+front — the browser then reaches the panel at `https://`your-hostname with a
+real Let's Encrypt certificate (ADR-0023, installer spec §7).
+
+**One-time DNS step** — at the provider that hosts your domain's DNS, add
+one `A` record pointing a hostname at your server's IP:
+
+| Name | Type | Value |
+|---|---|---|
+| `server` | A | `95.211.164.33` (your server's IPv4) |
+
+That makes `server.billucsolutions.co.ke` (or whatever you name it) resolve
+to your machine. Then, on the server:
+
+```bash
+sudo infra/install.sh public-origin server.billucsolutions.co.ke
+```
+
+The installer checks the DNS honestly (it refuses to run if the name does
+not point here), installs Caddy, waits for the certificate, and ends with:
+
+```
+ ✓  public origin live: https://server.billucsolutions.co.ke  (HTTP→HTTPS redirect + auto-renewal)
+```
+
+From now on just browse to **https://server.billucsolutions.co.ke** — no
+tunnel, from any device. The API and web still listen on loopback only;
+nothing else was exposed except your one hostname. To undo:
+`sudo infra/install.sh public-origin off`. Only managing from an office IP?
+Ask in the docs portal (SSL chapter) for the two-line IP allowlist.
+
 ## Day-2 operations
 
 ```bash
@@ -131,19 +165,23 @@ sudo infra/install.sh uninstall   # removes services; database+keys stay, you de
 | "keys already exist" on re-run | A previous install left keys — this is deliberate (never silent rotation). Use `upgrade`, or move `/etc/nexuspanel` away if you truly want a fresh start |
 | "unsupported OS" | See the support matrix above; the installer is honest about what it tested |
 | Web page won't load through the tunnel | Check the tunnel window is still connected and `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5173/` on the server says `200` |
+| `public-origin` says the name resolves elsewhere | Fix the A record at your DNS provider (or use `FORCE_PUBLIC_ORIGIN=1` only if you really are behind NAT) |
+| `public-origin` times out at the certificate | The A record may not have propagated, or port 80 is blocked upstream — `journalctl -u caddy -e` shows exactly what Let's Encrypt saw |
 
 ## What the installer does NOT do (on purpose)
 
-- No TLS certificate on 80/443 yet — the web/API stay loopback-only until
-  you put your own reverse proxy in front (planned installer phase).
 - No DNS/mail/backup stacks — the panel **manages** those once installed
   (the panel's DNS, Email, Backups pages drive them); see
   `docs/runbooks/acceptance-p4-p7.md` for the operator prep of each.
+- No hosted-site TLS — certificates for the panel itself come with
+  `public-origin` (above); certificates for the sites you host are the
+  SSL/ACME module's job (ADR-0009), driven from the panel's SSL page.
 
 ## Honest status of this guide
 
 | Item | Status |
 |---|---|
 | Install path end-to-end | **proven on live hardware** 2026-11-06 (Ubuntu 26.04.1, 10 findings found & fixed during the run — they are the troubleshooting table above) |
+| Public origin on a real domain | **proven on the same live VM** 2026-11-06 — `https://server.billucsolutions.co.ke` issued, health-gated, redirect verified |
 | Reboot survival (all 4 units + cgroup root) | **proven** |
 | Ubuntu 22.04 / 24.04 / Debian 12 | expected to work (same steps) — not yet acceptance-run |
