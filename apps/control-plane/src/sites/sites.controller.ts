@@ -9,6 +9,7 @@ import {
   CreateDomainInput,
   UpdateDomainInput,
   CreateRedirectInput,
+  ServingStatusDto,
   Actor,
 } from './sites.service';
 import { RequirePermission } from '../common/permissions';
@@ -31,6 +32,13 @@ export class SitesController {
   @RequirePermission('site:list')
   async list(@CurrentUser() user: AuthContext): Promise<{ data: DomainDto[] }> {
     return this.sites.list(actorOf(user));
+  }
+
+  /** Node serving posture for the console banner — must precede @Get(':id'). */
+  @Get('serving-status')
+  @RequirePermission('site:list')
+  async servingStatus(): Promise<ServingStatusDto> {
+    return this.sites.servingStatus();
   }
 
   @Get(':id')

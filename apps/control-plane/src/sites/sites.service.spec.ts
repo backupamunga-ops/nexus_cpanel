@@ -248,6 +248,7 @@ function harness(opts: { accessRows?: Array<{ user_id: string; hosting_account_i
       previous_existed: false,
     })),
     nginxRemoveVhost: jest.fn(async (_domain: string) => ({ status: 'removed', health_check: 'skipped' })),
+    nginxTest: jest.fn(async () => ({ status: 'skipped', detail: 'nginx binary not found on this node' })),
     filesystemRead: jest.fn(async (_username: string, path: string) => ({
       path,
       size_bytes: 0,
@@ -599,5 +600,51 @@ describe('aliases and redirects rewrite the parent vhost', () => {
     const content = h.agent.nginxApplyVhost.mock.calls[0][1] as string;
     expect(content).toContain('location ^~ /old {');
     expect(content).toContain('return 308 https://example.net/new;');
+  });
+});
+
+describe('serving status (live-VM finding #15)', () => {
+  it('reports an nginx-less node as installed:false — a pre-install state, not an error', async () => {
+    const h = harness();
+    h.agent.nginxTest = jest.fn(async () => ({
+      status: 'skipped',
+      detail: 'nginx binary not found on this node',
+    }));
+    await expect(h.svc.servingStatus()).resolves.toEqual({
+      installed: false,
+      healthy: false,
+      detail: 'nginx binary not found on this node',
+    });
+  });
+
+  it('reports a passing nginx -t as installed and healthy', async () => {
+    const h = harness();
+    h.agent.nginxTest = jest.fn(async () => ({ status: 'passed', detail: 'syntax is ok' }));
+    await expect(h.svc.servingStatus()).resolves.toEqual({
+      installed: true,
+      healthy: true,
+      detail: 'syntax is ok',
+    });
+  });
+
+  it('maps a failing nginx -t to unhealthy instead of hiding behind a 503', async () => {
+    const h = harness();
+    h.agent.nginxTest = jest.fn(async () => {
+      throw new ServiceUnavailableException(
+        'agent rejected nginx.test: nginx config test failed: emerg directive (-32001)',
+      );
+    });
+    const s = await h.svc.servingStatus();
+    expect(s.installed).toBe(true);
+    expect(s.healthy).toBe(false);
+    expect(s.detail).toContain('nginx config test failed');
+  });
+
+  it('rethrows agent-unreachable errors — the banner must not fake a status', async () => {
+    const h = harness();
+    h.agent.nginxTest = jest.fn(async () => {
+      throw new ServiceUnavailableException('agent unreachable: no such file or directory');
+    });
+    await expect(h.svc.servingStatus()).rejects.toThrow(ServiceUnavailableException);
   });
 });

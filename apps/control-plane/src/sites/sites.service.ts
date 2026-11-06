@@ -92,6 +92,18 @@ export interface Actor {
   isSuperAdmin?: boolean;
 }
 
+/**
+ * Node serving posture for the Sites console (nginx.test is read-only).
+ * installed=false is the documented pre-install state on a fresh node:
+ * vhosts are recorded and serve once nginx lands — the console says so
+ * instead of failing (live-VM finding #15).
+ */
+export interface ServingStatusDto {
+  installed: boolean;
+  healthy: boolean;
+  detail: string | null;
+}
+
 interface DomainRow {
   id: string;
   hosting_account_id: string;
@@ -148,6 +160,31 @@ export class SitesService {
       throw new NotFoundException('domain not found');
     }
     return toDomainDto(row);
+  }
+
+  /**
+   * Node serving posture for the Sites console: is nginx installed and does
+   * its config test pass? Read-only (nginx.test). installed=false is the
+   * documented pre-install state (the vhost lands first; the health gate
+   * reports the absent binary honestly). A failing `nginx -t` means nginx
+   * IS present but its config is broken — surfaced here instead of hiding
+   * behind a 503, so the operator sees what to fix.
+   */
+  async servingStatus(): Promise<ServingStatusDto> {
+    try {
+      const r = await this.agent.nginxTest();
+      return {
+        installed: r.status !== 'skipped',
+        healthy: r.status === 'passed',
+        detail: r.detail ?? null,
+      };
+    } catch (e) {
+      const msg = (e as Error).message ?? '';
+      if (e instanceof ServiceUnavailableException && msg.includes('nginx config test failed')) {
+        return { installed: true, healthy: false, detail: msg };
+      }
+      throw e;
+    }
   }
 
   async create(input: CreateDomainInput, actor?: Actor): Promise<DomainDto> {

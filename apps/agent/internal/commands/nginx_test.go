@@ -176,6 +176,32 @@ func TestHealthCheckSkippedWithoutBinary(t *testing.T) {
 	}
 }
 
+func TestApplyVhostCreatesMissingIncludeDir(t *testing.T) {
+	// A fresh node has no /etc/nginx/conf.d yet (nginx installs later);
+	// the apply must create the include dir, not die with a raw ENOENT
+	// (live-VM finding #15).
+	t.Setenv("PATH", "")
+	root := filepath.Join(t.TempDir(), "etc", "nginx", "conf.d")
+	r := NewRegistry(Deps{
+		WAL:       newTestWAL(t),
+		HomeRoot:  t.TempDir(),
+		VhostRoot: root,
+	})
+	res, _, err := r.nginxApplyVhost("id", rawParams(t, applyVhostParams{
+		Domain:  "fresh.example.com",
+		Content: "server {}",
+	}))
+	if err != nil {
+		t.Fatalf("apply on a node without nginx must still land the vhost: %v", err)
+	}
+	if res.(vhostOpResult).HealthCheck != "skipped" {
+		t.Fatalf("health gate must report the absent binary honestly: %+v", res)
+	}
+	if _, err := os.Stat(filepath.Join(root, "fresh.example.com.conf")); err != nil {
+		t.Fatalf("vhost must exist after the apply: %v", err)
+	}
+}
+
 func TestNginxTestAndReload(t *testing.T) {
 	r := newNginxRegistry(t, fakeNginx(t, 0, "ok"))
 	res, _, err := r.nginxTest("id", nil)

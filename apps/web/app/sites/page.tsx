@@ -27,6 +27,12 @@ interface DomainDto {
   updated_at: string;
 }
 
+interface ServingStatus {
+  installed: boolean;
+  healthy: boolean;
+  detail: string | null;
+}
+
 interface SubdomainDto {
   id: string;
   name: string;
@@ -124,6 +130,7 @@ export default function SitesPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [serving, setServing] = useState<ServingStatus | null>(null);
 
   // create form state
   const [newName, setNewName] = useState('');
@@ -160,6 +167,14 @@ export default function SitesPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Serving posture banner (best-effort): a fresh node has no nginx yet —
+  // sites still record fine, they just don't serve until it is installed.
+  useEffect(() => {
+    api<ServingStatus>('/domains/serving-status')
+      .then(setServing)
+      .catch(() => setServing(null));
+  }, []);
 
   const loadLogs = useCallback(async () => {
     if (!selected) return;
@@ -265,6 +280,42 @@ export default function SitesPage() {
         to the node first (staging write → atomic swap → health check → auto-rollback) and
         only then recorded — with a full config history per site.
       </p>
+
+      {serving && !serving.installed && (
+        <p
+          role="status"
+          style={{
+            marginTop: 12,
+            padding: '10px 14px',
+            border: '1px solid var(--np-border)',
+            borderLeft: '3px solid var(--np-warning)',
+            background: 'var(--np-warning-soft)',
+            borderRadius: 8,
+            fontSize: 14,
+          }}
+        >
+          The web server (nginx) is not installed on this machine yet. Sites you create here
+          are saved safely and start serving automatically once nginx is installed on the
+          server — you do not need to create them again. As root on the server:{' '}
+          <code>apt install nginx</code>.
+        </p>
+      )}
+      {serving && serving.installed && !serving.healthy && (
+        <p
+          role="alert"
+          style={{
+            marginTop: 12,
+            padding: '10px 14px',
+            border: '1px solid var(--np-border)',
+            borderLeft: '3px solid var(--np-danger)',
+            background: 'var(--np-danger-soft)',
+            borderRadius: 8,
+            fontSize: 14,
+          }}
+        >
+          nginx is installed, but its configuration test is currently failing: {serving.detail}
+        </p>
+      )}
 
       {message && <p role="status" style={{ color: 'var(--np-muted)', marginTop: 12 }}>{message}</p>}
       {error && <p role="alert" style={{ color: 'var(--np-danger)', marginTop: 12 }}>{error}</p>}

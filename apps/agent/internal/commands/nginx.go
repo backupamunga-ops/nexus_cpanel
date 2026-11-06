@@ -107,10 +107,20 @@ func (r *Registry) healthCheck() (status string, detail string, failed bool) {
 // atomicWrite is the config-engine apply primitive: stage in the target
 // directory, rename over the final path (atomic on the same filesystem),
 // then hand the decision to the caller's health gate. restore() puts the
-// previous bytes back byte-for-byte.
+// previous bytes back byte-for-byte. The include directory is created when
+// absent: a fresh node installs nginx later, and the design lets the vhost
+// land first with the health gate reporting the missing binary honestly
+// (live-VM finding #15: no /etc/nginx/conf.d turned every apply into a raw
+// ENOENT instead of the documented skipped health check).
 func atomicWrite(final string, content []byte) (prev []byte, prevOk bool, restore func(), err error) {
 	if old, err := os.ReadFile(final); err == nil {
 		prev, prevOk = old, true
+	}
+	if err := os.MkdirAll(filepath.Dir(final), 0o755); err != nil {
+		return nil, false, nil, &rpc.RPCError{
+			Code:    rpc.CodeInternalError,
+			Message: fmt.Sprintf("staging mkdir failed: %v", err),
+		}
 	}
 	staging := final + ".nexus-staging"
 	if err := os.WriteFile(staging, content, 0o644); err != nil {
