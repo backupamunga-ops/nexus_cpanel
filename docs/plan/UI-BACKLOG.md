@@ -28,8 +28,10 @@ Improve as we go — each shipped batch picks up the items that touch it.
    Extend the same pattern to the other modules that depend on optional node
    software (PHP versions, MariaDB, PowerDNS, fail2ban): state what is
    missing, in words, with the operator task that closes the gap.
-5. **Serving-stack coexistence design (behind item 4).** `public-origin`
-   (ADR-0023, Caddy) claims 80/443 for the panel; the Sites stack (nginx
-   vhosts) also listens on 80. Decide the layout before both run on one box:
-   separate panel hostname vs site hostnames, or Caddy fronting everything.
-   This is a design decision first, a UI task second.
+5. **Serving-stack coexistence design — RESOLVED 2026-11-06, ADR-0024.**
+   `public-origin` now provisions the nginx edge (the same daemon that serves
+   the agent's site vhosts), retires Caddy reversibly, reuses its certificate,
+   and persists `PANEL_PUBLIC_HOSTNAME` so Sites refuses to shadow the panel
+   (409 with a layman message; live-VM finding #16). UI follow-up: surface
+   the reservation inline in the Sites form (pre-click, like item 4) so the
+   operator learns the rule before submitting, not after.

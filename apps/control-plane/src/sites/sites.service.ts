@@ -192,6 +192,7 @@ export class SitesService {
     if (!FQDN_RE.test(name) || name.length > 253) {
       throw new BadRequestException('name must be a lowercase FQDN (e.g. example.com)');
     }
+    assertNotPanelHostname(name);
     const type = input.type === undefined || input.type === null ? 'primary' : input.type;
     if (typeof type !== 'string' || !DOMAIN_TYPES.has(type)) {
       throw new BadRequestException('type must be primary | addon | parked');
@@ -435,6 +436,7 @@ export class SitesService {
       );
     }
     const fqdn = `${label}.${domain.name}`;
+    assertNotPanelHostname(fqdn);
     const dup = await this.prisma.subdomain.findFirst({
       where: { domain_id: domain.id, name: label, deleted_at: null },
       select: { id: true },
@@ -563,6 +565,7 @@ export class SitesService {
     if (alias === domain.name) {
       throw new BadRequestException('alias cannot equal the domain itself');
     }
+    assertNotPanelHostname(alias);
     const dup = await this.prisma.domainAliase.findFirst({
       where: { alias_name: alias },
       select: { id: true },
@@ -1002,6 +1005,27 @@ export function logsDirForDocroot(docroot: string): string {
     throw new BadRequestException('document_root must live under /home/<username>/');
   }
   return `/home/${m[1]}/logs`;
+}
+
+/**
+ * The panel's own public hostname (ADR-0024): `infra/install.sh public-origin`
+ * persists PANEL_PUBLIC_HOSTNAME into /etc/nexuspanel/nexuspanel.env. nginx
+ * loads agent-managed site vhosts (conf.d/*.conf) BEFORE the panel-origin
+ * vhost (sites-enabled), so a site claiming this exact hostname would shadow
+ * the panel's own origin — creation is refused with a 409 instead
+ * (live-VM finding #16). Unset on loopback-only boxes → nothing reserved.
+ */
+export function panelHostname(): string {
+  return (process.env.PANEL_PUBLIC_HOSTNAME ?? '').trim().toLowerCase();
+}
+
+function assertNotPanelHostname(name: string): void {
+  if (panelHostname() && name === panelHostname()) {
+    throw new ConflictException(
+      `${name} is the panel's own address — create the site on a different domain` +
+        ' (a site on the panel hostname would take the panel itself offline)',
+    );
+  }
 }
 
 /**

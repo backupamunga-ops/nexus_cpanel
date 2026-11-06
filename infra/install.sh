@@ -8,8 +8,8 @@
 #   sudo infra/install.sh            # fresh install
 #   sudo infra/install.sh upgrade    # §5: pull, rebuild, restart, verify
 #   sudo infra/install.sh uninstall  # §4: remove units; data decisions stay yours
-#   sudo infra/install.sh public-origin <hostname>   # §7: TLS reverse proxy
-#   sudo infra/install.sh public-origin off          # §7: back to loopback-only
+#   sudo infra/install.sh public-origin <hostname> [nginx|caddy]  # §7: TLS edge (default nginx, ADR-0024)
+#   sudo infra/install.sh public-origin off                       # §7: back to loopback-only
 #
 # Non-negotiables (installer spec §1):
 #   - the control plane NEVER runs as root — every privileged operation is a
@@ -249,31 +249,216 @@ wait_health() { # name, test-command, [budget-seconds=60]
   done
 }
 
-# --- public origin (spec §7): Caddy TLS proxy in front of the loopback pair ----
-PUBLIC_ORIGIN_CONF=/etc/caddy/Caddyfile
+# --- public origin (spec §7, ADR-0024): nginx is THE edge ---------------------
+# One daemon owns 80/443 and serves BOTH the panel origin (this vhost) and
+# every site vhost the agent manages (/etc/nginx/conf.d/*.conf). Caddy
+# (ADR-0023) stays selectable as `public-origin <hostname> caddy` for
+# panel-only boxes. Live-VM finding #16: the two daemons cannot share 80/443,
+# and Sites (§4.7) requires nginx anyway — so nginx is the default engine.
+# The panel hostname is persisted as PANEL_PUBLIC_HOSTNAME in $NP_ENV_FILE so
+# the control plane refuses (409) any site/alias on it: conf.d loads BEFORE
+# the panel-origin vhost and a site on that name would shadow the panel.
 
-public_origin_up() {
-  require_root; REPO_DIR="$(repo_root)"
+PUBLIC_ORIGIN_CONF=/etc/caddy/Caddyfile
+PUBLIC_ORIGIN_NGINX_VHOST=/etc/nginx/sites-available/nexuspanel-panel
+PUBLIC_ORIGIN_SSL_DIR=/etc/nginx/ssl
+
+validate_public_hostname() { # hostname
   local domain="${1:-}"
   case "$domain" in
-    ''|*[!a-zA-Z0-9.-]*|*..*|.*|*.) die "usage: $0 public-origin <hostname>   (e.g. panel.example.com)" ;;
+    ''|*[!a-zA-Z0-9.-]*|*..*|.*|*.) die "usage: $0 public-origin <hostname> [nginx|caddy]   (e.g. panel.example.com)" ;;
     *.local|*.localhost|*.test|*.example|*.invalid)
       die "'$domain' is not publicly resolvable — Let's Encrypt cannot issue a certificate for it" ;;
   esac
-  # The hostname must point HERE, or ACME will fail. Honest check, escapable
-  # for NAT/port-forward setups with FORCE_PUBLIC_ORIGIN=1.
+}
+
+# The hostname must point HERE, or ACME will fail. Honest check, escapable
+# for NAT/port-forward setups with FORCE_PUBLIC_ORIGIN=1.
+check_public_dns() { # hostname
   local ip pub
-  ip="$(dig +short A "$domain" 2>/dev/null | grep -E '^[0-9.]+$' | tail -1 || true)"
+  ip="$(dig +short A "$1" 2>/dev/null | grep -E '^[0-9.]+$' | tail -1 || true)"
   pub="$(curl -fsS --max-time 10 https://api.ipify.org 2>/dev/null \
     || ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' \
     || true)"
   if [ -z "$ip" ]; then
-    log "  (DNS for $domain not resolving yet — continuing; ACME will fail loudly if it is not pointed here)"
+    log "  (DNS for $1 not resolving yet — continuing; ACME will fail loudly if it is not pointed here)"
   elif [ "$ip" != "$pub" ] && [ "${FORCE_PUBLIC_ORIGIN:-0}" != 1 ]; then
-    die "$domain resolves to $ip but this machine's public address is ${pub:-unknown}.
+    die "$1 resolves to $ip but this machine's public address is ${pub:-unknown}.
 Add/fix the A record first, or re-run with FORCE_PUBLIC_ORIGIN=1 if NAT is in play."
   fi
+}
 
+# Arm the Sites shadowing guard (ADR-0024) and bounce the control plane — the
+# unit reads its EnvironmentFile only at start.
+persist_panel_hostname() { # hostname
+  touch "$NP_ENV_FILE"
+  sed -i '/^PANEL_PUBLIC_HOSTNAME=/d' "$NP_ENV_FILE"
+  printf 'PANEL_PUBLIC_HOSTNAME=%s\n' "$1" >> "$NP_ENV_FILE"
+  chown root:"$NP_SVC_USER" "$NP_ENV_FILE" 2>/dev/null || true
+  chmod 0640 "$NP_ENV_FILE" 2>/dev/null || true
+  systemctl try-restart nexuspanel-api.service 2>/dev/null || true
+  ok "panel hostname reserved — sites on '$1' are refused (PANEL_PUBLIC_HOSTNAME)"
+}
+
+drop_panel_hostname() {
+  if [ -f "$NP_ENV_FILE" ]; then sed -i '/^PANEL_PUBLIC_HOSTNAME=/d' "$NP_ENV_FILE"; fi
+  systemctl try-restart nexuspanel-api.service 2>/dev/null || true
+}
+
+public_origin_up() { # hostname [engine=nginx]
+  require_root; REPO_DIR="$(repo_root)"
+  local domain="${1:-}" engine="${2:-nginx}"
+  validate_public_hostname "$domain"
+  check_public_dns "$domain"
+  case "$engine" in
+    nginx) public_origin_up_nginx "$domain" ;;
+    caddy) public_origin_up_caddy "$domain" ;;
+    *) die "unknown engine '$engine' — use nginx or caddy" ;;
+  esac
+}
+
+copy_origin_cert() { # src-crt hostname — normalize a foreign cert into $PUBLIC_ORIGIN_SSL_DIR
+  cp -a "$1" "$PUBLIC_ORIGIN_SSL_DIR/$2.crt"
+  cp -a "${1%.crt}.key" "$PUBLIC_ORIGIN_SSL_DIR/$2.key"
+  chown root:root "$PUBLIC_ORIGIN_SSL_DIR/$2.crt" "$PUBLIC_ORIGIN_SSL_DIR/$2.key"
+  chmod 644 "$PUBLIC_ORIGIN_SSL_DIR/$2.crt"
+  chmod 600 "$PUBLIC_ORIGIN_SSL_DIR/$2.key"
+}
+
+public_origin_up_nginx() { # hostname
+  local domain="$1"
+  export DEBIAN_FRONTEND=noninteractive
+  log "public origin (nginx) — installing nginx + certbot"
+  apt-get install -y -qq nginx certbot python3-certbot-nginx >/dev/null
+  command -v nginx >/dev/null || die "nginx did not install"
+
+  # A site vhost already claiming the panel name in conf.d would shadow this
+  # origin the moment it loads — refuse here rather than debug nginx later.
+  if [ -e "/etc/nginx/conf.d/$domain.conf" ]; then
+    die "/etc/nginx/conf.d/$domain.conf exists — a site already claims this hostname; give the panel a different one"
+  fi
+
+  mkdir -p "$PUBLIC_ORIGIN_SSL_DIR"
+  # Certificate order: /etc/nginx/ssl (prior run) → the Caddy edge's LE store
+  # (ADR-0023 migration — reuse, never re-issue) → certbot below.
+  if [ -s "$PUBLIC_ORIGIN_SSL_DIR/$domain.crt" ] && [ -s "$PUBLIC_ORIGIN_SSL_DIR/$domain.key" ]; then
+    local issued=existing
+  else
+    local c
+    for c in /var/lib/caddy/.local/share/caddy/certificates/*/"$domain"/"$domain.crt"; do
+      if [ -s "$c" ]; then copy_origin_cert "$c" "$domain"; break; fi
+    done
+    local issued=migrated
+    if [ ! -s "$PUBLIC_ORIGIN_SSL_DIR/$domain.crt" ]; then issued=certbot; fi
+  fi
+
+  log "public origin (nginx) — writing $PUBLIC_ORIGIN_NGINX_VHOST for $domain (cert: $issued)"
+  if [ -f "$PUBLIC_ORIGIN_NGINX_VHOST" ]; then cp -a "$PUBLIC_ORIGIN_NGINX_VHOST" "$PUBLIC_ORIGIN_NGINX_VHOST.bak"; fi
+  write_nginx_origin_vhost "$domain"
+
+  ln -sf "$PUBLIC_ORIGIN_NGINX_VHOST" /etc/nginx/sites-enabled/nexuspanel-panel
+  nginx -t || die "generated nginx config failed 'nginx -t'"
+  # Two daemons cannot share 80/443 (finding #16): the Caddy edge retires the
+  # moment nginx takes over. Config and certs stay on disk — reversible.
+  if systemctl is-active --quiet caddy 2>/dev/null; then
+    systemctl disable --now caddy >/dev/null 2>&1 || true
+    ok "Caddy edge retired (config kept: /etc/caddy/Caddyfile + Caddyfile.bak)"
+  fi
+  systemctl enable nginx >/dev/null 2>&1 || true
+  systemctl restart nginx
+  ufw allow 80/tcp  >/dev/null
+  ufw allow 443/tcp >/dev/null
+
+  if [ "$issued" = certbot ]; then
+    # nginx owns :80 now, so the HTTP-01 challenge can complete.
+    log "public origin (nginx) — issuing certificate with certbot (up to 120s)"
+    local le_args=(--non-interactive --agree-tos --nginx -d "$domain")
+    if [ -n "${NEXUS_LE_EMAIL:-}" ]; then le_args+=(-m "$NEXUS_LE_EMAIL"); else le_args+=(--register-unsafely-without-email); fi
+    certbot certonly "${le_args[@]}" || die "certbot failed — check DNS for $domain, then re-run: $0 public-origin $domain"
+    [ -s "/etc/letsencrypt/live/$domain/fullchain.pem" ] || die "certbot reported success but /etc/letsencrypt/live/$domain/fullchain.pem is missing"
+    copy_origin_cert "/etc/letsencrypt/live/$domain/fullchain.pem" "$domain"
+    nginx -t && systemctl reload nginx
+  fi
+
+  persist_panel_hostname "$domain"
+  log "public origin — waiting for first TLS request (up to 120s)"
+  wait_health "https origin (https://$domain/api/v1/health)" \
+    "curl -fsS https://$domain/api/v1/health >/dev/null 2>&1" 120
+  curl -fsS -o /dev/null "https://$domain/" 2>/dev/null || die "api answers over TLS but the web origin does not — journalctl -u nginx -e && systemctl status nexuspanel-web"
+  ok "public origin live: https://$domain  (HTTP→HTTPS redirect; renewal: certbot.timer)"
+  echo "  tunnels are no longer needed; the API (:3000) and web (:5173) stay loopback-only"
+  echo "  the same nginx serves the site vhosts the agent writes to /etc/nginx/conf.d (Sites §4.7)"
+}
+
+write_nginx_origin_vhost() { # hostname — same-origin model: /api/v1 (REST and
+  # the raw-ws event stream) proxies to the control plane, everything else to
+  # the Next.js web origin. Both upstreams stay loopback-only.
+  cat > "$PUBLIC_ORIGIN_NGINX_VHOST" <<EOF
+# NexusPanel public origin — WRITTEN BY 'infra/install.sh public-origin'
+# (nginx engine, ADR-0024: one daemon serves the panel AND all site vhosts).
+# conf.d/*.conf (agent-managed site vhosts) load BEFORE this file; the panel
+# hostname is reserved via PANEL_PUBLIC_HOSTNAME so no site can shadow it.
+
+map \$http_upgrade \$connection_upgrade {
+    default upgrade;
+    ""      close;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $1;
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name $1;
+
+    ssl_certificate     $PUBLIC_ORIGIN_SSL_DIR/$1.crt;
+    ssl_certificate_key $PUBLIC_ORIGIN_SSL_DIR/$1.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "same-origin" always;
+    server_tokens off;
+
+    client_max_body_size 256m;
+
+    location /api/v1/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \$connection_upgrade;
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:5173;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 3600s;
+    }
+
+    access_log /var/log/nginx/nexuspanel-access.log;
+}
+EOF
+}
+
+public_origin_up_caddy() { # hostname (ADR-0023 legacy engine, panel-only boxes)
+  local domain="$1"
   log "public origin — installing Caddy (distro archive first, official repo fallback)"
   export DEBIAN_FRONTEND=noninteractive
   if ! apt-get install -y -qq caddy >/dev/null 2>&1; then
@@ -332,6 +517,7 @@ EOF
   wait_health "https origin (https://$domain/api/v1/health)" \
     "curl -fsS https://$domain/api/v1/health >/dev/null 2>&1" 120
   curl -fsS -o /dev/null "https://$domain/" 2>/dev/null || die "api answers over TLS but the web origin does not — journalctl -u caddy -e && systemctl status nexuspanel-web"
+  persist_panel_hostname "$domain"
   ok "public origin live: https://$domain  (HTTP→HTTPS redirect + auto-renewal)"
   echo "  tunnels are no longer needed; the API (:3000) and web (:5173) stay loopback-only"
   echo "  optional hardening — restrict the panel to your IPs, add above the route block:"
@@ -340,9 +526,15 @@ EOF
 
 public_origin_off() {
   require_root
-  [ -f "$PUBLIC_ORIGIN_CONF" ] || die "no public origin configured ($PUBLIC_ORIGIN_CONF missing)"
-  printf '# NexusPanel public origin disabled %s (config backup: Caddyfile.bak)\n' "$(date -u +%FT%TZ)" > "$PUBLIC_ORIGIN_CONF"
   systemctl disable --now caddy >/dev/null 2>&1 || true
+  if [ -L /etc/nginx/sites-enabled/nexuspanel-panel ]; then
+    rm -f /etc/nginx/sites-enabled/nexuspanel-panel
+    if systemctl is-active --quiet nginx 2>/dev/null && nginx -t >/dev/null 2>&1; then
+      systemctl reload nginx >/dev/null 2>&1 || true
+    fi
+    ok "nginx panel-origin vhost removed (agent site vhosts in conf.d are untouched)"
+  fi
+  drop_panel_hostname
   ok "public origin disabled — the panel is loopback/tunnel-only again"
 }
 
@@ -482,7 +674,7 @@ do_uninstall() {
   echo "  - database '$NP_DB_NAME' (drop: sudo -u postgres dropdb $NP_DB_NAME && sudo -u postgres psql -c \"DROP ROLE ${NP_DB_USER}\")"
   echo "  - keys $NP_KEYS  (destroy: rm -rf $NP_KEYS — only after confirming no ciphertext will ever need reading)"
   echo "  - repo $NEXUS_HOME and the $NP_SVC_USER account"
-  echo "  - public origin, if you used it: systemctl disable --now caddy && rm $PUBLIC_ORIGIN_CONF"
+  echo "  - public origin, if you used it: systemctl disable --now caddy; nginx edge: rm /etc/nginx/sites-enabled/nexuspanel-panel && systemctl reload nginx"
 }
 
 # --- main -----------------------------------------------------------------------------
@@ -492,6 +684,6 @@ case "${1:-install}" in
   uninstall) do_uninstall ;;
   public-origin)
     shift || true
-    if [ "${1:-}" = "off" ]; then public_origin_off; else public_origin_up "${1:-}"; fi ;;
-  *) die "usage: $0 [install|upgrade|uninstall|public-origin <hostname>|public-origin off]" ;;
+    if [ "${1:-}" = "off" ]; then public_origin_off; else public_origin_up "${1:-}" "${2:-nginx}"; fi ;;
+  *) die "usage: $0 [install|upgrade|uninstall|public-origin <hostname> [nginx|caddy]|public-origin off]" ;;
 esac

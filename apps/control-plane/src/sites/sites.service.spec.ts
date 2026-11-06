@@ -648,3 +648,61 @@ describe('serving status (live-VM finding #15)', () => {
     await expect(h.svc.servingStatus()).rejects.toThrow(ServiceUnavailableException);
   });
 });
+
+describe('panel hostname reservation (live-VM finding #16, ADR-0024)', () => {
+  // conf.d (agent site vhosts) loads before sites-enabled (panel origin), so a
+  // site on the panel hostname would shadow the panel itself — refused, with
+  // zero agent writes, on every path that can claim a hostname.
+  const PANEL = 'server.example.com';
+  const withPanelEnv = (run: () => Promise<unknown>): Promise<unknown> => {
+    process.env.PANEL_PUBLIC_HOSTNAME = PANEL;
+    return run().finally(() => {
+      delete process.env.PANEL_PUBLIC_HOSTNAME;
+    });
+  };
+
+  it('refuses a site on the panel hostname — 409, zero agent writes', async () => {
+    await withPanelEnv(async () => {
+      const h = harness();
+      await expect(
+        h.svc.create({ name: PANEL, hosting_account_id: ACCOUNT.id, php_version: '8.3' }, SUPER),
+      ).rejects.toThrow(ConflictException);
+      expect(h.agent.filesystemMkdir).not.toHaveBeenCalled();
+      expect(h.agent.nginxApplyVhost).not.toHaveBeenCalled();
+    });
+  });
+
+  it('refuses a subdomain that resolves to the panel hostname (apex site + label)', async () => {
+    await withPanelEnv(async () => {
+      const h = harness();
+      const d = seedDomain(h); // example.com
+      await expect(
+        h.svc.createSubdomain(d['id'], { name: 'server' }, SUPER),
+      ).rejects.toThrow(ConflictException);
+      expect(h.agent.filesystemMkdir).not.toHaveBeenCalled();
+      expect(h.agent.nginxApplyVhost).not.toHaveBeenCalled();
+    });
+  });
+
+  it('refuses an alias on the panel hostname', async () => {
+    await withPanelEnv(async () => {
+      const h = harness();
+      const d = seedDomain(h);
+      await expect(
+        h.svc.createAlias(d['id'], { alias_name: PANEL }, SUPER),
+      ).rejects.toThrow(ConflictException);
+      expect(h.agent.nginxApplyVhost).not.toHaveBeenCalled();
+    });
+  });
+
+  it('reserves nothing when PANEL_PUBLIC_HOSTNAME is unset (loopback-only dev node)', async () => {
+    delete process.env.PANEL_PUBLIC_HOSTNAME;
+    const h = harness();
+    const dto = await h.svc.create(
+      { name: PANEL, hosting_account_id: ACCOUNT.id, php_version: '8.3' },
+      SUPER,
+    );
+    expect(dto.name).toBe(PANEL);
+    expect(h.agent.nginxApplyVhost).toHaveBeenCalledTimes(1);
+  });
+});
