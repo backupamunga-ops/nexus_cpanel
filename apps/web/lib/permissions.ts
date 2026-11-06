@@ -84,6 +84,11 @@ export const WEB_KNOWN_PERMISSIONS: readonly string[] = [
   'migration:execute',
   'migration:list',
   'migration:read',
+  'extension:list', // P7 (ADR-0021) — extension SDK runtime (API spec §4.24)
+  'extension:install',
+  'extension:manage',
+  'extension:uninstall',
+  'extension:widgets',
   'notification:manage',
   'notification:read',
   'package:create',

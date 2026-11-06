@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Extensions &amp; SDK · NexusPanel Docs</title>
+  <link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<div class="portal">
+  <aside>
+    <div class="brand">NexusPanel Docs</div>
+    <div class="tag">v0.6.0 · P7</div>
+    <div class="group">Using the panel</div>
+    <nav>
+      <a href="accounts.html">Accounts &amp; packages</a>
+      <a href="resellers.html">Resellers</a>
+      <a href="sites.html">Sites &amp; domains</a>
+      <a href="php.html">PHP per site</a>
+      <a href="files.html">Files &amp; FTP</a>
+      <a href="databases.html">Databases</a>
+      <a href="email.html">Email</a>
+      <a href="dns.html">DNS</a>
+      <a href="ssl.html">SSL certificates</a>
+      <a href="backups.html">Backups</a>
+      <a href="migration.html">Migrations (cPanel)</a>
+      <a href="firewall.html">Firewall &amp; bans</a>
+      <a href="threat-protection.html">Threat protection</a>
+      <a href="automation.html">Jobs, webhooks &amp; notifications</a>
+      <a class="active" href="extensions.html">Extensions &amp; SDK</a>
+    </nav>
+    <div class="group">Security &amp; admin</div>
+    <nav>
+      <a href="account-security.html">Your account security</a>
+      <a href="server-settings.html">Server settings</a>
+      <a href="config.html">Configuration engine</a>
+      <a href="security.html">Security model</a>
+      <a href="audit.html">Audit log &amp; chain</a>
+      <a href="agent.html">The agent</a>
+      <a href="api.html">API reference</a>
+    </nav>
+    <div class="group">Start here</div>
+    <nav>
+      <a href="getting-started.html">Getting started</a>
+      <a href="first-account.html">Your first hosting account</a>
+      <a href="troubleshooting.html">Troubleshooting</a>
+    </nav>
+    <div class="back"><a href="../index.html">← Documentation home</a></div>
+  </aside>
+  <main>
+    <h1>Extensions &amp; SDK</h1>
+    <p class="lede">
+      Extensions are add-ons that run <strong>outside</strong> the panel as their
+      own little service and talk to it over a signed, versioned protocol. They
+      can add dashboard cards, react to things that happen (a backup finishing,
+      a backup failing), and call a small, carefully-fenced slice of the panel
+      API. What they can never do is touch anything you did not approve —
+      nothing is granted until you review and allow it, and every call they
+      make is written into the tamper-evident audit log.
+    </p>
+
+    <h2>The idea in one minute</h2>
+    <p>
+      An extension is a small web service that publishes a <em>manifest</em> —
+      a JSON file saying who it is, what it wants to see, and where the panel
+      can reach it. You install it by pasting its manifest URL on the
+      <strong>Extensions</strong> screen. The panel fetches the manifest,
+      checks it against a closed list of allowed permissions, and parks the
+      extension in <strong>disabled</strong> state with <strong>nothing
+      granted</strong>. You then see exactly what it is asking for and either
+      <strong>Approve</strong> or <strong>Reject</strong>. Approval hands you
+      a secret <strong>exactly once</strong> — paste it into the extension
+      and it starts working. Lose it? Uninstall and install again.
+    </p>
+
+    <h2>What extensions can ask for</h2>
+    <p>
+      Permissions are a closed list — extensions cannot invent new ones. The
+      read scopes cover accounts, sites, mail, DNS, databases, SSL, backups,
+      the audit log and users. The <code>notification:write</code> scope lets
+      an extension post a message into your notification center. The write
+      scopes (sites, mail, DNS, backups) are <strong>declared but refused in
+      v1.0</strong> — every extension write would need your personal
+      per-call confirmation, and that confirmation queue arrives in a later
+      release. Until then, a refused write notifies you and changes nothing.
+    </p>
+
+    <h2>How the panel talks to an extension</h2>
+    <p>
+      Every call the panel makes to an extension carries three headers — an
+      extension id, a timestamp, and a signature computed from the shared
+      secret over exactly what is being sent. The extension must check the
+      signature and refuse anything older than 60 seconds. Extensions call
+      the panel through <code>/api/v1/ext/*</code> only — a separate,
+      rate-limited (60 calls/minute) doorway where every request is checked
+      against the scopes you granted and audited under the extension's own
+      name. The main panel API is unreachable from an extension, full stop.
+    </p>
+
+    <h2>Health and honesty</h2>
+    <p>
+      The panel pings every enabled extension once a minute. One that stops
+      answering is marked <span class="badge" style="border-color: var(--danger, #ef4444); color: #ef4444;">errored</span>,
+      its doorway is closed, and you get a notification — the same happens
+      again in reverse when it comes back. Widget cards on the dashboard are
+      plain sandboxed iframes: they get the color theme, and nothing else.
+    </p>
+
+    <h2>The example extension</h2>
+    <p>
+      <code>nexus-example-reporter</code> ships in the repository
+      (<code>examples/</code>) — a couple hundred lines of dependency-free
+      Node.js that posts a backup summary to a webhook of your choice and
+      shows a “Last backup” card on the dashboard. It verifies every panel
+      signature the way a production extension should, and it is the
+      acceptance test for the whole SDK: if it runs unmodified against a
+      fresh install, the SDK works.
+    </p>
+
+    <h2 class="np-honest">Not yet (honest list)</h2>
+    <ul>
+      <li>Per-call confirmation queue for the write scopes (v1.x trust levels).</li>
+      <li>PostgreSQL storage namespaces for extensions that ask for them (spec §8) — provisioned during the live-VM acceptance run.</li>
+      <li>Marketplace (spec §10) — v1.0 installs by manifest URL only.</li>
+    </ul>
+  </main>
+</div>
+</body>
+</html>

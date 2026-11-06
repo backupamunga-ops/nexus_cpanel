@@ -47,6 +47,7 @@ const NAV_GROUPS: Array<{
       { href: '/sessions', label: 'Sessions', icon: 'activity' },
       { href: '/tokens', label: 'API tokens', icon: 'key' },
       { href: '/server-settings', label: 'Server settings', icon: 'server', adminOnly: true },
+      { href: '/extensions', label: 'Extensions', icon: 'store', adminOnly: true },
     ],
   },
   {

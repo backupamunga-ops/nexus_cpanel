@@ -658,6 +658,20 @@ ping. Secrets are SecretBox envelopes (ADR-0009) and never returned.
 | POST | `/extensions` | jwt | `extension:install` (admin) |
 | DELETE | `/extensions/{id}` | jwt | `extension:uninstall` (admin) |
 | PATCH | `/extensions/{id}` | jwt | `extension:manage` (admin) |
+| GET | `/extensions/widgets` | jwt | `extension:widgets` (any authenticated user) |
+| POST | `/extensions/register` | jwt | `extension:install` (admin) |
+
+Landed at P7 (ADR-0021). `PATCH /extensions/{id}` carries
+`{action: "approve" | "reject" | "enable" | "disable"}`; `approve` grants
+the manifest's requested scopes and returns the one-time credentials
+(`shared_secret` + derived token) exactly once — no endpoint ever returns
+them again. `POST /extensions` installs from `{manifest_url}` (the panel
+fetches `<origin>/nexuspanel-manifest.json`, validates it against the SDK
+spec §4 closed lists, and lands the row `disabled` with zero scopes).
+Extension-scoped calls live under the closed `/api/v1/ext/*` namespace
+(SDK spec §5.3): bearer = derived token, rate limit 60/min, audited as
+`extension.<slug>.call`; extension writes are refused with
+`write_requires_confirmation` in v1.0.
 
 ### 4.25 System / Meta
 

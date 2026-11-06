@@ -33,6 +33,7 @@
       <a href="chapters/firewall.html">Firewall &amp; bans</a>
       <a href="chapters/threat-protection.html">Threat protection</a>
       <a href="chapters/automation.html">Jobs, webhooks &amp; notifications</a>
+      <a href="chapters/extensions.html">Extensions &amp; SDK</a>
     </nav>
     <div class="group">Security &amp; admin</div>
     <nav>
@@ -98,6 +99,7 @@
       <tr><td>Jobs, webhooks &amp; notifications — job center with retry, HMAC-signed webhook deliveries with backoff + dead-letter/redrive, in-app notification center, daily audit-chain verification cron (C11), migration spec draft (G-17)</td><td><a href="chapters/automation.html">Jobs, webhooks &amp; notifications</a></td><td><span class="badge ok">live</span></td></tr>
       <tr><td>Apps &amp; git deploys — one-click WordPress (auto database, generated admin password shown once), staging clones with isolated DB + URL rewrite, push-to-deploy with HMAC webhook receivers (GitHub/GitLab/Bitbucket), release history + one-click rollback (ADR-0019)</td><td><a href="chapters/apps-and-git.html">Apps &amp; git deploys</a></td><td><span class="badge ok">live</span> <span class="badge">no build runner in v1.0</span></td></tr>
       <tr><td>Migrations — cPanel cpmove import: analyze (read-only) → zero-write plan → resumable execute → per-entity checksum verification with a full report + DNS cutover plan; mailbox/DB passwords never imported — fresh secrets instead (ADR-0020)</td><td><a href="chapters/migration.html">Migrations (cPanel)</a></td><td><span class="badge ok">live</span> <span class="badge">SSL import + automated DNS cutover later</span></td></tr>
+      <tr><td>Extensions &amp; SDK — out-of-process add-ons installed by manifest URL: scope review with nothing granted until approved, one-time credentials, closed rate-limited /api/v1/ext/* doorway (60/min, metadata-only resolvers), signed hook dispatch + 60 s heartbeats, sandboxed dashboard widgets; example extension <code>nexus-example-reporter</code> is the acceptance test (ADR-0021)</td><td><a href="chapters/extensions.html">Extensions &amp; SDK</a></td><td><span class="badge ok">live</span> <span class="badge">write scopes land with the v1.x confirmation queue</span></td></tr>
     </table>
 
     <h2>Screenshots (P4 set, auto-generated)</h2>

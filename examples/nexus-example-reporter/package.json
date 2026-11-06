@@ -1,0 +1,14 @@
+{
+  "name": "nexus-example-reporter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NexusPanel example extension (SDK spec §11) — backup reporter: backup.completed/backup.failed hooks → external webhook, plus a 'Last backup' dashboard widget. The SDK acceptance test: runs unmodified against a fresh panel install.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT"
+}

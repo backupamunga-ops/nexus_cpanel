@@ -116,6 +116,11 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
   'migration:execute',
   'migration:list',
   'migration:read',
+  'extension:list', // P7 (ADR-0021) — extension SDK runtime (API spec §4.24)
+  'extension:install',
+  'extension:manage',
+  'extension:uninstall',
+  'extension:widgets', // dashboard widget slots — any authenticated user (SELF)
   'notification:manage',
   'notification:read',
   'package:create',
@@ -294,4 +299,5 @@ export const SELF_PERMISSIONS: ReadonlySet<string> = new Set([
   'auth:logout',
   'auth:sessions',
   'auth:tokens',
+  'extension:widgets',
 ]);

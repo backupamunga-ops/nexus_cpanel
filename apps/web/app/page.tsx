@@ -11,6 +11,15 @@ interface Account {
   status: string;
 }
 
+/** An extension widget slot (P7, SDK spec §7) rendered on the dashboard. */
+interface ExtWidget {
+  slug: string;
+  name: string;
+  widget_id: string;
+  slot: string;
+  entry_url: string;
+}
+
 /**
  * Dashboard — plain-language home screen (WS5 refresh). Every number here
  * is fetched live from the control plane; nothing is mocked or decorated
@@ -46,6 +55,7 @@ function greeting(): string {
 export default function Dashboard() {
   const [me, setMe] = useState<{ display_name: string; is_super_admin: boolean } | null>(null);
   const [accounts, setAccounts] = useState<Account[] | null>(null);
+  const [widgets, setWidgets] = useState<ExtWidget[] | null>(null);
   const [version, setVersion] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
 
@@ -66,6 +76,10 @@ export default function Dashboard() {
       .then((r) => r.json())
       .then((v) => setVersion(`${v.panel} · schema ${v.schema}`))
       .catch(() => setVersion(null));
+    // Extension widget slots (SDK spec §7) — absent list simply renders nothing
+    api<{ data: ExtWidget[] }>('/extensions/widgets')
+      .then((j) => setWidgets(j.data ?? []))
+      .catch(() => setWidgets([]));
   }, []);
 
   const firstName = me?.display_name?.split(/\s+/)[0] ?? 'there';
@@ -160,6 +174,53 @@ export default function Dashboard() {
             <div className="np-kpi-note">{version ? 'up to date' : 'control plane offline'}</div>
           </div>
         </div>
+
+        {/* Extension widgets (P7) — sandboxed iframes, context via postMessage */}
+        {widgets !== null && widgets.length > 0 && (
+          <div className="np-grid">
+            {widgets.map((w) => (
+              <section className="np-card" key={`${w.slug}:${w.widget_id}`}>
+                <div className="np-card-head">
+                  <h3>
+                    <span className="ico">
+                      <Icon name="store" />
+                    </span>
+                    {w.name}
+                  </h3>
+                  <span className="np-badge info">extension</span>
+                </div>
+                <iframe
+                  title={`${w.name} — ${w.widget_id}`}
+                  src={w.entry_url}
+                  sandbox="allow-scripts allow-same-origin"
+                  referrerPolicy="no-referrer"
+                  style={{ width: '100%', height: 220, border: 'none', borderRadius: 'var(--np-radius-sm)' }}
+                  onLoad={(e) => {
+                    // SDK spec §7: the widget asks for context via postMessage;
+                    // the panel answers with the current theme tokens.
+                    const mode = (
+                      localStorage.getItem('nexuspanel.theme') as 'dark' | 'light' | null
+                    ) ?? 'dark';
+                    (e.target as HTMLIFrameElement).contentWindow?.postMessage(
+                      {
+                        type: 'nexuspanel:context',
+                        theme: {
+                          mode,
+                          primary: '#6366f1',
+                          background: mode === 'dark' ? '#0a0a0a' : '#ffffff',
+                          foreground: mode === 'dark' ? '#fafafa' : '#0f172a',
+                          font_family: 'Inter',
+                          border_radius: '8px',
+                        },
+                      },
+                      '*',
+                    );
+                  }}
+                />
+              </section>
+            ))}
+          </div>
+        )}
 
         {/* Getting started — plain steps for non-technical users */}
         <div className="np-grid">
