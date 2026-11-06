@@ -145,8 +145,9 @@ not point here), installs Caddy, waits for the certificate, and ends with:
 From now on just browse to **https://server.billucsolutions.co.ke** — no
 tunnel, from any device. The API and web still listen on loopback only;
 nothing else was exposed except your one hostname. To undo:
-`sudo infra/install.sh public-origin off`. Only managing from an office IP?
-Ask in the docs portal (SSL chapter) for the two-line IP allowlist.
+`sudo infra/install.sh public-origin off`. Only ever managing from fixed
+IPs? The command prints the two-line `remote_ip` allowlist recipe — paste it
+into the Caddyfile and reload, and the panel answers those IPs only.
 
 ## Day-2 operations
 

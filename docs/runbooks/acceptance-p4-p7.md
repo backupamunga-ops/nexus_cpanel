@@ -67,6 +67,14 @@ systemctl is-active nexuspanel-{cgroups,agent,api,web}
 ls -ld /sys/fs/cgroup/nexuspanel   # root:nexuspanel, 0750
 ```
 
+> **Re-running the unit-test gates on a deployed box** (not CI): the suites
+> need a neutral environment — run
+> `DATABASE_URL='postgresql://gate:gate@127.0.0.1:5432/gate' npm test --workspace apps/control-plane`.
+> Do **not** source `/etc/nexuspanel/nexuspanel.env` first: with the live env
+> loaded the DI-graph suite loses its placeholder `DATABASE_URL`, and the JWT
+> suite can no longer reach its "no secret configured" branch — both observed
+> on the live VM, 2026-11-06.
+
 ## 2. B06 — DNS on real PowerDNS (ADR-0012)
 
 Prepare PowerDNS (packages are the operator's job; the panel manages config):
