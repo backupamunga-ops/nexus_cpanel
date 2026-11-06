@@ -145,6 +145,7 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
   'site:update',
   'ssh:manage',
   'ssh:read',
+  'terminal:use', // ADR-0023 — web terminal, shell on the node (hosting-scoped)
   'ssl:issue',
   'ssl:read',
   'ssl:revoke',
@@ -159,7 +160,7 @@ export const KNOWN_PERMISSIONS: readonly string[] = [
  * anti-enumeration). Grows family by family as P3 resources land.
  */
 export const HOSTING_SCOPED_PREFIXES: readonly string[] = [
-  'site:', 'file:', 'ssh:', 'ssl:', 'php:', 'config:', 'ftp:', 'dns:', 'mail:', 'db:',
+  'site:', 'file:', 'ssh:', 'ssl:', 'php:', 'config:', 'ftp:', 'dns:', 'mail:', 'db:', 'terminal:',
 ];
 
 /**
@@ -204,6 +205,7 @@ export const ACCOUNT_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'file:delete',
     'ssh:read',
     'ssh:manage',
+    'terminal:use',
     'ssl:read',
     'ssl:issue',
     'ssl:revoke',
@@ -253,6 +255,7 @@ export const ACCOUNT_ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     'file:delete',
     'ssh:read',
     'ssh:manage',
+    'terminal:use',
     'ssl:read',
     'ssl:issue',
     'ssl:revoke',

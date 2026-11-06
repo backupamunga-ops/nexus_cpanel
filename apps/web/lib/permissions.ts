@@ -113,6 +113,7 @@ export const WEB_KNOWN_PERMISSIONS: readonly string[] = [
   'site:update',
   'ssh:manage',
   'ssh:read',
+  'terminal:use', // ADR-0023 — web terminal, shell on the node (hosting-scoped)
   'ssl:issue',
   'ssl:read',
   'ssl:revoke',

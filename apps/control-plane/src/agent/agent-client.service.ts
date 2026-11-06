@@ -1,6 +1,7 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import * as crypto from 'node:crypto';
 import * as http from 'node:http';
+import * as net from 'node:net';
 
 /**
  * Client for the NexusPanel Go agent (specs/nexuspanel-agent-spec-v1.0.md §3).
@@ -168,6 +169,94 @@ export class AgentClientService {
   }
 
   // ---- typed convenience wrappers (M0 allowlist slice) ----------------------
+
+  /**
+   * Opens a web-terminal stream to the agent (ADR-0023). The signed
+   * `terminal.open` envelope travels on POST /terminal — same Ed25519
+   * signature contract as every other method — and the agent answers
+   * 101 Switching Protocols. Resolves with the raw duplex socket carrying
+   * length-prefixed frames (apps/agent/internal/term/frame.go); rejects with
+   * the agent's clean JSON-RPC error message on any refusal.
+   */
+  async openTerminalStream(params: {
+    username: string;
+    cols: number;
+    rows: number;
+  }): Promise<net.Socket> {
+    const method = 'terminal.open';
+    const rawParams = Buffer.from(JSON.stringify(params), 'utf8');
+    const issuedAt = new Date();
+    const expiresAt = new Date(issuedAt.getTime() + 30_000);
+    const issued = issuedAt.toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const expires = expiresAt.toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const id = `req_${crypto.randomUUID()}`;
+    const signature = this.sign(method, rawParams, issued, expires);
+
+    const body: Record<string, unknown> = {
+      jsonrpc: '2.0',
+      id,
+      method,
+      params: JSON.parse(rawParams.toString('utf8')),
+      issued_at: issued,
+      expires_at: expires,
+    };
+    if (signature) {
+      body.signature = signature;
+    }
+    const payload = JSON.stringify(body);
+
+    return new Promise<net.Socket>((resolve, reject) => {
+      const req = http.request({
+        socketPath: this.socketPath,
+        path: '/terminal',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+          Connection: 'Upgrade',
+          Upgrade: 'nexus-terminal',
+        },
+      });
+      const fail = (message: string): void =>
+        reject(new ServiceUnavailableException(`agent rejected terminal.open: ${message}`));
+
+      req.on('upgrade', (res, socket, head) => {
+        if (res.statusCode !== 101) {
+          socket.destroy();
+          fail(`unexpected upgrade status ${res.statusCode}`);
+          return;
+        }
+        socket.setTimeout(0); // sessions may idle; the agent owns the limits
+        if (head?.length) socket.unshift(head);
+        resolve(socket as net.Socket);
+      });
+      req.on('response', (res) => {
+        // A non-upgraded response is a clean JSON-RPC rejection (signature,
+        // policy, precondition) — surface the agent's message verbatim.
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+              error?: { message: string; code: number };
+            };
+            fail(parsed.error?.message ?? `unexpected non-upgrade response (${res.statusCode})`);
+          } catch {
+            fail(`unexpected non-upgrade response (${res.statusCode})`);
+          }
+        });
+      });
+      req.on('error', (e: NodeJS.ErrnoException) => {
+        if (e.code === 'ECONNREFUSED' || e.code === 'ENOENT') {
+          fail(`agent unreachable at ${this.socketPath} (${e.code})`);
+          return;
+        }
+        fail(e.message);
+      });
+      req.write(payload);
+      req.end();
+    });
+  }
 
   async systemHealth(): Promise<Record<string, string>> {
     const r = await this.call<Record<string, string>>('system.health', {});

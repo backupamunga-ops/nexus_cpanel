@@ -24,6 +24,7 @@ const NAV_GROUPS: Array<{
       { href: '/apps', label: 'Apps', icon: 'rocket' },
       { href: '/files', label: 'Files', icon: 'folder' },
       { href: '/databases', label: 'Databases', icon: 'database' },
+      { href: '/terminal', label: 'Terminal', icon: 'terminal' },
     ],
   },
   {

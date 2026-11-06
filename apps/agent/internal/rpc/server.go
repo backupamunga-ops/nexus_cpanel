@@ -87,6 +87,24 @@ type AuditHint struct {
 // signatures can be verified over exactly what the control plane serialized.
 type Handler func(id string, rawParams json.RawMessage) (result any, audit *AuditHint, err error)
 
+// TerminalSession is one prepared terminal stream (ADR-0023).
+type TerminalSession interface {
+	Attach(conn io.ReadWriteCloser)
+}
+
+// TerminalStream prepares and serves web-terminal sessions (ADR-0023) on
+// POST /terminal. Prepare validates the signed `terminal.open` envelope and
+// spawns the shell BEFORE the connection is hijacked, so every rejection is a
+// normal JSON-RPC response; Attach then streams until the session ends. A nil
+// Terminal disables the subsystem: /terminal answers method-not-found. The
+// allowlist doctrine (§4 preamble) still holds — terminal.open is a NAMED,
+// signature-gated capability wired in at launch, not a generic exec primitive.
+type TerminalStream interface {
+	Prepare(id string, rawParams json.RawMessage) (TerminalSession, error)
+}
+
+const terminalOpenMethod = "terminal.open"
+
 // HandlerRegistry resolves method names to handlers. Unknown methods are
 // "method not found"; the allowlist IS the registry map (spec §4).
 type HandlerRegistry interface {
@@ -104,6 +122,7 @@ type SignatureChecker interface {
 type Server struct {
 	Registry HandlerRegistry
 	Auth     SignatureChecker
+	Terminal TerminalStream // optional; nil disables the /terminal route
 }
 
 // NewServer wires a registry and signature verifier.
@@ -128,9 +147,14 @@ func (s *Server) Serve(ln net.Listener) error {
 type sigFailKey struct{}
 
 // HTTPHandler returns the JSON-RPC HTTP handler (POST / — one envelope per
-// request body). Exported for tests.
+// request body; POST /terminal — one signed terminal.open upgrade, ADR-0023).
+// Exported for tests.
 func (s *Server) HTTPHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/terminal" {
+			s.serveTerminal(w, r)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)
@@ -169,6 +193,78 @@ func (s *Server) HTTPHandler() http.Handler {
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	})
+}
+
+// serveTerminal implements the one-request upgrade: verify the signed
+// terminal.open envelope exactly like dispatch() does, run Prepare (still a
+// plain HTTP request — failures are JSON-RPC errors), then hijack the
+// connection, answer 101 Switching Protocols and hand the raw stream to the
+// session. After Hijack() the net/http machinery is out of the loop; closing
+// the connection is the session's job.
+func (s *Server) serveTerminal(w http.ResponseWriter, r *http.Request) {
+	if s.Terminal == nil {
+		s.writeRPCError(w, &Error{Code: CodeMethodNotFound, Message: "terminal subsystem is not enabled on this agent"})
+		return
+	}
+	if r.Method != http.MethodPost {
+		s.writeRPCError(w, &Error{Code: CodeInvalidRequest, Message: "POST required"})
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		s.writeRPCError(w, &Error{Code: CodeParseError, Message: "read error"})
+		return
+	}
+	var req request
+	if err := json.Unmarshal(body, &req); err != nil {
+		s.writeRPCError(w, &Error{Code: CodeParseError, Message: "parse error"})
+		return
+	}
+	meta := auth.EnvelopeMeta{
+		Method:    req.Method,
+		RawParams: req.Params,
+		IssuedAt:  req.IssuedAt,
+		ExpiresAt: req.ExpiresAt,
+	}
+	if err := s.Auth.Verify(meta, req.Signature); err != nil {
+		s.writeRPCError(w, authError(err))
+		return
+	}
+	if req.Method != terminalOpenMethod {
+		s.writeRPCError(w, &Error{Code: CodeMethodNotFound, Message: "method not found: " + req.Method})
+		return
+	}
+	sess, err := s.Terminal.Prepare(req.ID, req.Params)
+	if err != nil {
+		s.writeRPCError(w, handlerError(err))
+		return
+	}
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		s.writeRPCError(w, &Error{Code: CodeInternalError, Message: "terminal streaming unsupported on this listener"})
+		return
+	}
+	conn, buf, err := hj.Hijack()
+	if err != nil {
+		s.writeRPCError(w, &Error{Code: CodeInternalError, Message: "hijack failed: " + err.Error()})
+		return
+	}
+	defer conn.Close()
+	// A session spawned but never hijacked (error above) is reaped by the
+	// manager's idle bound — it never runs with a client attached.
+	if _, err := buf.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: nexus-terminal\r\nConnection: Upgrade\r\n\r\n"); err != nil {
+		return
+	}
+	if err := buf.Flush(); err != nil {
+		return
+	}
+	sess.Attach(conn)
+}
+
+// writeRPCError answers with a single JSON-RPC error body (non-hijack paths).
+func (s *Server) writeRPCError(w http.ResponseWriter, e *Error) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response{JSONRPC: "2.0", Error: e})
 }
 
 func (s *Server) dispatch(req *request) *response {
