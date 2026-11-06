@@ -102,6 +102,10 @@ install_packages() {
     > /etc/apt/sources.list.d/nodesource.list
   apt-get update -qq
   apt-get install -y -qq "$PG_PKG" nodejs ufw fail2ban unattended-upgrades >/dev/null
+  # npm — bundled by NodeSource's nodejs, but a SEPARATE package where the
+  # archive nodejs won (Ubuntu 26.04: finding #4 of the live-VM run). Only
+  # install it when missing so we never fight a NodeSource nodejs.
+  command -v npm >/dev/null || apt-get install -y -qq npm >/dev/null
   local pg_major
   pg_major="$(psql --version | sed -E 's/.*\) ([0-9]+).*/\1/')"
   [ "${pg_major:-0}" -ge 16 ] || die "PostgreSQL ≥ 16 required — archive offered ${pg_major:-unknown}"
@@ -186,11 +190,17 @@ EOF
 build_artifacts() {
   log "step 5/8 — build (npm ci → prisma generate → workspaces build → agent binary)"
   cd "$REPO_DIR"
-  npm ci --no-audit --no-fund >/dev/null 2>&1
-  npm run prisma:generate --workspace apps/control-plane >/dev/null
-  npm run build --workspaces --if-present >/dev/null
+  # Quiet but diagnosable: each stage keeps its log; failure says where to look
+  # (attempt 3 of the acceptance run died with a bare 127 here).
+  npm ci --no-audit --no-fund >/tmp/nexuspanel-npmci.log 2>&1 \
+    || die "npm ci failed — see /tmp/nexuspanel-npmci.log"
+  npm run prisma:generate --workspace apps/control-plane >/tmp/nexuspanel-prisma.log 2>&1 \
+    || die "prisma generate failed — see /tmp/nexuspanel-prisma.log"
+  npm run build --workspaces --if-present >/tmp/nexuspanel-build.log 2>&1 \
+    || die "workspace build failed — see /tmp/nexuspanel-build.log"
   ( cd apps/agent && CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' \
-      -o /usr/local/bin/nexuspanel-agent ./cmd/agent )
+      -o /usr/local/bin/nexuspanel-agent ./cmd/agent ) \
+    || die "agent build failed (go compiler output above)"
   chmod 0755 /usr/local/bin/nexuspanel-agent
   # Code stays root-owned on purpose: the service user runs it, never edits it.
   ok "built: control-plane dist, web .next, /usr/local/bin/nexuspanel-agent"
