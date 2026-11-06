@@ -26,7 +26,10 @@ NP_ENV_FILE="$NP_ETC/nexuspanel.env"
 NP_SVC_USER=nexuspanel
 NP_DB_NAME=nexuspanel
 NP_DB_USER=nexuspanel
-GO_VERSION=1.23.4
+# Tarball fallback ONLY (distros whose archive Go is < 1.23, e.g. Debian 12).
+# dl.google.com prunes old pins — never pin an EOL Go here (live-VM finding:
+# go1.23.4 is gone from the CDN for some edges; 26.04 archive ships 1.25.14).
+GO_VERSION="${GO_VERSION:-1.27.3}"
 NODE_MAJOR=20
 
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
@@ -100,12 +103,17 @@ install_packages() {
   pg_major="$(psql --version | sed -E 's/.*\) ([0-9]+).*/\1/')"
   [ "${pg_major:-0}" -ge 16 ] || die "PostgreSQL ≥ 16 required — archive offered ${pg_major:-unknown}"
 
-  # Go toolchain — only for building the agent. Debian/Ubuntu archive versions
-  # are too old for go.mod (go 1.23); use the official tarball. Verify the
-  # sha256 against https://go.dev/dl/ — automated pin-verification arrives
-  # with the cosign-signed updater (C19/C20), not before.
-  if ! command -v go >/dev/null || ! go version | grep -q "go${GO_VERSION%%.*}"; then
-    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz
+  # Go toolchain — only for building the agent (go.mod floor: 1.23). Prefer
+  # the distro archive (native package, security updates); fall back to the
+  # official tarball on old-archive distros. Finding of the live-VM
+  # acceptance run: pinned old tarballs 404 from some edges, archive-first
+  # removes that dependency where it can be removed.
+  apt-get install -y -qq golang-go >/dev/null 2>&1 || true
+  local go_ver
+  go_ver="$(command -v go >/dev/null && go version | sed -E 's/.*go([0-9][0-9.]*) .*/\1/' || echo 0)"
+  if [ "$(printf '%s\n1.23\n' "$go_ver" | sort -V | tail -1)" = "1.23" ]; then
+    log "  (archive Go ${go_ver} < 1.23 — installing official tarball ${GO_VERSION})"
+    curl -fsSL "https://dl.google.com/go/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz
     echo "go tarball sha256: $(sha256sum /tmp/go.tgz | cut -d' ' -f1)  (compare with https://go.dev/dl/)"
     rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tgz && rm /tmp/go.tgz
     ln -sf /usr/local/go/bin/go /usr/local/bin/go
