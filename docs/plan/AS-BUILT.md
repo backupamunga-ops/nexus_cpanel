@@ -4,10 +4,10 @@
 
 | Field | Value |
 |---|---|
-| Version | 2.2 |
+| Version | 2.3 |
 | Date | 2026-11-06 |
 | Status | ACTIVE — reconstructed from `specs/` + git history after the 2026-11-05 sandbox recycle |
-| Repo state | `origin/main` @ `4d988e5` — 108 commits, CI green (4/4 checks) |
+| Repo state | `origin/main` — 119 commits, CI green (4/4 checks) |
 | Docs portal | 26 chapters live, v0.6.0 badge, 32-shot screenshot set (`docs/portal/static/screenshots/p4/`) |
 
 > **Provenance & honesty note.** The original working master doc was lost in the sandbox recycle of
@@ -18,7 +18,7 @@
 
 ---
 
-## 1. Status Snapshot (as of `49627f9`)
+## 1. Status Snapshot (as of the P8 / live-VM §1 batch)
 
 | Track | State |
 |---|---|
@@ -28,6 +28,7 @@
 | Batches B11–B13 (P5) | Complete — firewall/fail2ban, WAF/ClamAV, jobs/webhooks/notifications + audit verify cron |
 | Batches B14–B15 (P6) | Complete — app installer/push-to-deploy, migration center |
 | P7 (extensions & release engineering) | **Extension SDK runtime + `nexus-example-reporter` complete** (`f20abc4`) — registration/scope-review/one-time credentials, closed `/api/v1/ext/*` doorway (60/min, metadata-only), signed hooks + heartbeats, sandboxed widgets; release engineering landed — installer spec v1.0 + support matrix published, k6 SLO harness + nightly gate, cosign+SBOM release workflow (C19/C20) |
+| Live-VM acceptance run | **§1 (install.sh first drive) PASSED on real hardware** 2026-11-06 — Ubuntu 26.04.1 VM (Leaseweb): 10 installer findings found and fixed in 9 fix commits (`972034b`…`0199880`), clean end-to-end install, all §1 checks green, reboot survival proven (all 4 units + cgroup root return on their own). Runbook: `docs/runbooks/acceptance-p4-p7.md`; evidence: `/root/acceptance-evidence/01*.log`. Step-by-step guide written from the proven path: `docs/release/INSTALL_GUIDE.md` |
 | ADRs | ADR-0001 … ADR-0022, all landed (`docs/adr/`) |
 | CI | `agent (Go)` ✅ · `control-plane (NestJS)` ✅ · `web (Next.js)` ✅ · `schema drift (DDL ↔ Prisma)` ✅ |
 | Gates at HEAD | go vet+test ok · jest 424 pass (35 suites) · typecheck ok · permissions:check ok · prisma:check clean · next build ok |
@@ -55,6 +56,7 @@
 | **B14** | App installer — WordPress one-click (WP-CLI as account user, never root), staging clone; push-to-deploy (HMAC webhooks, release-symlink history/rollback) | `842bd97` | 0019 | gates: jest 383 |
 | **B15** | Migration center — cPanel cpmove import: analyze → zero-write dry-run → resumable execute → verify (per-entity sha256, byte-for-byte checks), BIND zonefile parser, SKIP always explicit + reason-coded, artifact credentials never imported, report + DNS cutover/rollback plan | `49627f9` | 0020 | gates: jest 396 (13 new), 32-shot set |
 | **P7** | Extension SDK runtime — register → scope review → approve (one-time creds) → operate; closed `/api/v1/ext/*` doorway (60/min, metadata-only resolvers), signed hooks + 60 s heartbeats, sandboxed dashboard widgets; `nexus-example-reporter` reference extension; release engineering: installer spec v1.0 + support matrix, k6 SLO harness + nightly gate, cosign+SBOM release workflow | `f20abc4` | 0021 | gates: jest 424 (28 new) |
+| **P8 / live-VM §1** | install.sh v1.0 first drive on Ubuntu 26.04.1 + installer findings fixed: 26.04 accepted + adaptive PostgreSQL (PGDG→archive ≥16), adaptive Go (archive-first, tarball fallback), gpg --batch (no tty), npm unbundled on archive nodejs, build stage logs, wait_health quoted tests, keys 0640 root:nexuspanel (unprivileged API must read), service group before keys dir, ufw SIGPIPE port probe, web unit hoisted-next path + health gates, Requires→Wants cascade fix; step-by-step `docs/release/INSTALL_GUIDE.md` | `972034b`, `b24c4b7`, `34d0e49`, `dd03614`, `b36e887`, `decabb2`, `f63c604`, `d1f5024`, `0199880` | — | live-VM PASS: 01-install.log, 01b/01c checks, reboot survival |
 
 ---
 
@@ -64,19 +66,23 @@ Verified by automated gates and CI on the dev rig. **Not yet** exercised on a re
 
 | Acceptance item (from plan) | State |
 |---|---|
-| B06 — wildcard-cert DNS-01 / real PowerDNS on VM | dev-rig verified — live-VM acceptance pending |
-| B07/B08 — real inbound/outbound mail delivery, relay through provider | dev-rig verified — live-VM acceptance pending |
+| P7 — installer E2E on a live VM (install.sh first drive + reboot survival) | **accepted on live VM 2026-11-06** — 10 findings fixed en route; evidence `01-install.log`, `01b-install-checks.log`, `01c-reboot-checks.log` |
+| B06 — wildcard-cert DNS-01 / real PowerDNS on VM | dev-rig verified — live-VM acceptance pending (needs an operator domain delegated to the VM) |
+| B07/B08 — real inbound/outbound mail delivery, relay through provider | dev-rig verified — live-VM acceptance pending (needs domain + relay provider) |
 | B09 — live MariaDB 11 round trip | dev-rig verified — live-VM acceptance pending |
-| B10 — real S3/SFTP round trip + real restore on VM | dev-rig verified — live-VM acceptance pending |
+| B10 — real S3/SFTP round trip + real restore on VM | dev-rig verified — live-VM acceptance pending (needs S3 bucket + keys) |
 | B11 — nftables apply + fail2ban jails on live VM | dev-rig verified — live-VM acceptance pending |
 | B12 — CRS fires detect-vs-block on staged payload | dev-rig verified — live-VM acceptance pending |
 | B14 — fresh-account WP install < 5 min staged | dev-rig verified — live-VM acceptance pending |
-| B15 — real cPanel account migrated in staging with full report | dev-rig verified — live-VM acceptance pending |
-| P7 — example extension passes against a fresh install; API p95 ≤ 300 ms + agent op p95 ≤ 1 s on reference hardware; installer E2E on a live VM | SDK runtime: dev-rig verified (`extensions.service.spec` + `ext-proxy.service.spec`, 28 tests; example extension E2E pending the live rig) — SLO harness landed, thresholds enforced nightly for public API; live-VM acceptance pending |
+| B15 — real cPanel account migrated in staging with full report | dev-rig verified — live-VM acceptance pending (needs a source cPanel server) |
+| P7 — example extension on the live install; API p95 ≤ 300 ms + agent op p95 ≤ 1 s on reference hardware | SDK runtime: dev-rig verified (28 tests) — extension E2E + k6 SLO on the live VM pending (this VM is the reference hardware) |
 
-**Recommended next milestone:** one live-VM acceptance run executing the pending rows above in
-dependency order (B06 DNS → B07/B08 mail → B09 → B10 → B11 → B12 → B14 → B15), using the portal's
-Getting-started and server-settings chapters as the runbook.
+**Run status:** the run started 2026-11-06 on the live VM (95.211.164.33,
+Ubuntu 26.04.1) — §1 install **PASSED** (10 findings fixed, reboot survival
+proven). Continue in dependency order: B09 MariaDB → B11 firewall → B12
+WAF/ClamAV prep → P7 extension + k6 SLO are runnable now; B06/B07/B08 (need
+an operator domain + relay), B10 (S3 bucket), B15 (source cPanel) wait on
+operator resources.
 
 ---
 
@@ -125,16 +131,15 @@ Getting-started and server-settings chapters as the runbook.
 
 ## 6. What's Next
 
-1. **Live-VM acceptance run** — the procedure now exists:
-   `docs/runbooks/acceptance-p4-p7.md` (install.sh first drive + one verdict
-   table per pending Section 3 row, evidence captured to
-   `/root/acceptance-evidence/`). Execute it on a fresh VM and record the
-   verdicts.
+1. **Continue the live-VM acceptance run** (`docs/runbooks/acceptance-p4-p7.md`,
+   §2–§10) — next runnable without operator resources: B09 MariaDB round
+   trip, B11 firewall/fail2ban, B12 WAF/ClamAV (nginx+ModSecurity install),
+   P7 extension ladder + k6 SLO. B06/B07/B08/B10/B15 need domain, relay,
+   S3 and a source cPanel from the operator.
 2. **P7 remainder:** per-call confirmation queue for extension write scopes
    (v1.x trust levels, ADR-0021 §2), extension storage namespaces (SDK spec
-   §8), GA tag + changelog. (`install.sh` itself has landed — its first real
-   drive is step 1 of the runbook.)
+   §8), GA tag + changelog.
 3. **First release:** push a `v*` tag — `release.yml` builds the agent binary,
    SBOMs and keyless cosign signatures; no secrets setup required.
-4. Standing: revoke the tokens exposed in chat; issue a fresh one-time token
-   for the next push.
+4. Standing: revoke the tokens **and the VM root password** exposed in chat;
+   issue a fresh one-time token for the next push.
