@@ -92,9 +92,12 @@ install_packages() {
     PG_PKG=postgresql
     log "  (PGDG has no ${CODENAME} dist — using the distro archive PostgreSQL)"
   fi
-  # Node.js ${NODE_MAJOR} — NodeSource repo (manual keyring setup)
-  curl -fsSL "https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key" \
-    | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+  # Node.js ${NODE_MAJOR} — NodeSource repo (manual keyring setup; --batch so
+  # gpg never asks for a /dev/tty — finding #3 of the live-VM acceptance run,
+  # where the installer runs over a non-interactive SSH channel)
+  curl -fsSL "https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key" -o /tmp/nodesource.asc
+  gpg --batch --yes --dearmor -o /etc/apt/keyrings/nodesource.gpg /tmp/nodesource.asc
+  rm -f /tmp/nodesource.asc
   echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
     > /etc/apt/sources.list.d/nodesource.list
   apt-get update -qq
