@@ -20,8 +20,11 @@ Non-negotiables carried from infra/README.md:
 
 - The control plane NEVER runs as root and never touches the OS directly —
   every privileged operation is a signed Ed25519 command to the agent.
-- Master key generated at install time, `/etc/nexuspanel/keys/` mode 0400
-  root-owned, offline backup prompt at the end of install (security model §3.1).
+- Master key generated at install time, `/etc/nexuspanel/keys/` root-owned
+  and read-only to the `nexuspanel` service group (dir 0750, secrets 0640
+  root:nexuspanel — never service-writable; the live-VM run corrected the
+  original '0400 root', which the unprivileged control-plane unit cannot
+  read), offline backup prompt at the end of install (security model §3.1).
 - Self-update accepts ONLY cosign-signed release manifests (C19/C20, §6 below).
 
 ## 2. Steps (each maps 1:1 to a proven runbook step)
@@ -35,10 +38,12 @@ Non-negotiables carried from infra/README.md:
    `specs/nexuspanel-schema-v2.0.sql` (the canonical DDL, ADR-0004). The
    runbook's docker initdb mount does the same thing on the dev rig.
 3. **Keys** — `npm run keys:generate --workspace apps/control-plane`
-   produces `control-plane-signing.key` (0600), `control-plane-signing.pub`
+   produces `control-plane-signing.key` (0640 root:nexuspanel),
+   `control-plane-signing.pub`
    (raw base64 → agent), and the SecretBox master key (`secrets.key`,
-   `CP_SECRETS_KEY_PATH`). Existing keys are never overwritten — the
-   installer must fail loudly if keys exist rather than rotate them silently.
+   `CP_SECRETS_KEY_PATH`, 0640 root:nexuspanel). Existing keys are never
+   overwritten — the installer must fail loudly if keys exist rather than
+   rotate them silently.
 4. **Environment** — write `/etc/nexuspanel/nexuspanel.env` (mode 0640,
    root:root, sourced by both units) with exactly the runbook's names:
    `DATABASE_URL`, `CP_SIGNING_KEY_PATH`, `CP_SECRETS_KEY_PATH`,

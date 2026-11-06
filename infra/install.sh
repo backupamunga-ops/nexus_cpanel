@@ -149,7 +149,13 @@ create_database() {
 # --- step 3: keys (never overwrite) ------------------------------------------
 create_keys() {
   log "step 3/8 — keys under $NP_KEYS (Ed25519 signing pair + SecretBox master key)"
-  install -d -m 0700 -o root -g root "$NP_KEYS"
+  # Finding #6 of the live-VM acceptance run: the API unit runs as the
+  # unprivileged nexuspanel user and MUST read the signing key + master key,
+  # so the directory is root:nexuspanel 0750 and the secrets are 0640
+  # root:nexuspanel — root-owned, never service-WRITABLE, invisible to every
+  # other user. (The original 0700 root + 0600 root crashed the control
+  # plane at boot; '0400 root' was unachievable with an unprivileged unit.)
+  install -d -m 0750 -o root -g "$NP_SVC_USER" "$NP_KEYS"
   umask 077
   openssl genpkey -algorithm ed25519 -out "$NP_KEYS/control-plane-signing.key" 2>/dev/null
   # Raw base64 of the last 32 SPKI bytes — the exact format the agent's
@@ -157,7 +163,8 @@ create_keys() {
   openssl pkey -in "$NP_KEYS/control-plane-signing.key" -pubout -outform DER 2>/dev/null \
     | tail -c 32 | base64 -w0 > "$NP_KEYS/control-plane-signing.pub"
   openssl rand -base64 32 > "$NP_KEYS/secrets.key"
-  chmod 0600 "$NP_KEYS/control-plane-signing.key" "$NP_KEYS/secrets.key"
+  chown root:"$NP_SVC_USER" "$NP_KEYS/control-plane-signing.key" "$NP_KEYS/secrets.key"
+  chmod 0640 "$NP_KEYS/control-plane-signing.key" "$NP_KEYS/secrets.key"
   chmod 0444 "$NP_KEYS/control-plane-signing.pub"
   umask 022
   ok "keys written (back them up offline — prompt at the end)"
@@ -219,9 +226,9 @@ install_units() {
   systemctl enable --now nexuspanel-api.service   >/dev/null
   systemctl enable --now nexuspanel-web.service   >/dev/null
   wait_health "agent socket" \
-    [ -S /run/nexuspanel/agent.sock ]
+    '[ -S /run/nexuspanel/agent.sock ]'
   wait_health "control plane" \
-    curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null
+    'curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null'
   ok "units active — health gate passed"
 }
 
@@ -258,7 +265,7 @@ create_first_admin() {
     --setenv=DEV_ADMIN_PASSWORD="$pass" \
     /usr/bin/node dist/main.js >/dev/null
   wait_health "bootstrap control plane" \
-    curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null
+    'curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null'
   local code
   code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/v1/auth/login \
     -H 'Content-Type: application/json' \
@@ -267,7 +274,7 @@ create_first_admin() {
   systemctl stop nexuspanel-bootstrap >/dev/null
   systemctl start nexuspanel-api.service
   wait_health "control plane (final)" \
-    curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null
+    'curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null'
   NP_ADMIN_EMAIL="$email" NP_ADMIN_PASSWORD="$pass"
   ok "super admin created and verified (seed env discarded with the transient unit)"
 }
@@ -335,7 +342,7 @@ do_upgrade() {
   fi
   echo "note: forward-only DDL migrations are applied by hand when shipped (ADR-0004); none pending at v1.0."
   systemctl start nexuspanel-api.service nexuspanel-web.service
-  wait_health "control plane" curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null
+  wait_health "control plane" 'curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null'
   ok "upgrade complete — run POST /api/v1/audit/verify to confirm the chain"
 }
 
