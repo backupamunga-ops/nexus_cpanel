@@ -1,0 +1,52 @@
+# NexusPanel node agent — the ONLY root-adjacent process (installer spec §1).
+#
+# Runs as root per installer spec v1.0 ("root — the ONLY root-adjacent process,
+# explicit capability set, no auto-root"). Agent spec §2's non-root
+# `nexusagent` + ambient-capabilities model remains the recorded hardening
+# target (ADR-0022); do not widen anything here without an ADR.
+#
+# The socket is group-connectable so the UNPRIVILEGED control plane can reach
+# it: RuntimeDirectory is root:nexuspanel 0750, the agent process carries
+# nexuspanel as its primary group, and the socket is 0660 — nobody outside the
+# nexuspanel group can even traverse into /run/nexuspanel.
+
+[Unit]
+Description=NexusPanel node agent (signed JSON-RPC over Unix socket)
+Documentation=https://github.com/backupamunga-ops/nexus_cpanel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/nexuspanel-agent \
+  --socket /run/nexuspanel/agent.sock \
+  --socket-mode 0660 \
+  --signing-pubkey /etc/nexuspanel/keys/control-plane-signing.pub \
+  --wal-dir /var/lib/nexuspanel-agent/wal
+User=root
+Group=nexuspanel
+RuntimeDirectory=nexuspanel
+RuntimeDirectoryMode=0750
+StateDirectory=nexuspanel-agent
+StateDirectoryMode=0700
+
+# Hardening. The agent legitimately manages accounts, cgroups, vhosts, mail
+# maps and DNS tooling on the host — that privilege IS its job, which is why
+# it is the only root-adjacent process. ProtectSystem/ProtectHome would break
+# that work and are deliberately absent. ProtectControlGroups would make
+# /sys/fs/cgroup read-only and break isolation.provision account slices, so
+# it is deliberately absent too; cgroup delegation is set up by the installer
+# instead (infra/install.sh step 8). Everything else is tightened:
+NoNewPrivileges=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=true
+LockPersonality=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+LimitNOFILE=65535
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target

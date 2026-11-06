@@ -1,0 +1,45 @@
+# NexusPanel web origin (ADR-0022) — the Next.js server, UNPRIVILEGED.
+#
+# `apps/web` is a Next.js server app (same-origin /api/v1 rewrites proxy to
+# the control plane), so it needs a Node process; it is not a static export.
+# Binds 127.0.0.1:5173 ONLY — operators reach it over an SSH tunnel or their
+# own reverse proxy on 80/443. The installer never opens 5173 publicly.
+
+[Unit]
+Description=NexusPanel web origin (Next.js)
+Documentation=https://github.com/backupamunga-ops/nexus_cpanel
+After=network-online.target nexuspanel-api.service
+Wants=network-online.target
+Requires=nexuspanel-api.service
+
+[Service]
+Type=simple
+User=nexuspanel
+Group=nexuspanel
+WorkingDirectory=/opt/nexuspanel/apps/web
+Environment=NODE_ENV=production
+Environment=CONTROL_PLANE_INTERNAL_URL=http://127.0.0.1:3000
+Environment=PORT=5173
+ExecStart=/usr/bin/node node_modules/next/dist/bin/next start -H 127.0.0.1 -p 5173
+
+# Same hardening baseline as the API unit (installer spec §3):
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=true
+LockPersonality=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=yes
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+LimitNOFILE=65535
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target

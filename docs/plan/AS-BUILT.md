@@ -4,10 +4,10 @@
 
 | Field | Value |
 |---|---|
-| Version | 2.1 |
+| Version | 2.2 |
 | Date | 2026-11-06 |
 | Status | ACTIVE — reconstructed from `specs/` + git history after the 2026-11-05 sandbox recycle |
-| Repo state | `origin/main` @ `12125bf` — 107 commits, CI green (4/4 checks) |
+| Repo state | `origin/main` @ `4d988e5` — 108 commits, CI green (4/4 checks) |
 | Docs portal | 26 chapters live, v0.6.0 badge, 32-shot screenshot set (`docs/portal/static/screenshots/p4/`) |
 
 > **Provenance & honesty note.** The original working master doc was lost in the sandbox recycle of
@@ -28,7 +28,7 @@
 | Batches B11–B13 (P5) | Complete — firewall/fail2ban, WAF/ClamAV, jobs/webhooks/notifications + audit verify cron |
 | Batches B14–B15 (P6) | Complete — app installer/push-to-deploy, migration center |
 | P7 (extensions & release engineering) | **Extension SDK runtime + `nexus-example-reporter` complete** (`f20abc4`) — registration/scope-review/one-time credentials, closed `/api/v1/ext/*` doorway (60/min, metadata-only), signed hooks + heartbeats, sandboxed widgets; release engineering landed — installer spec v1.0 + support matrix published, k6 SLO harness + nightly gate, cosign+SBOM release workflow (C19/C20) |
-| ADRs | ADR-0001 … ADR-0021, all landed (`docs/adr/`) |
+| ADRs | ADR-0001 … ADR-0022, all landed (`docs/adr/`) |
 | CI | `agent (Go)` ✅ · `control-plane (NestJS)` ✅ · `web (Next.js)` ✅ · `schema drift (DDL ↔ Prisma)` ✅ |
 | Gates at HEAD | go vet+test ok · jest 424 pass (35 suites) · typecheck ok · permissions:check ok · prisma:check clean · next build ok |
 | UI | DirectAdmin-simple refresh landed (`a2eb83e`): grouped icon sidebar, dark/light themes, real dashboard, design tokens |
@@ -104,6 +104,8 @@ Getting-started and server-settings chapters as the runbook.
 | 0018 | Jobs, webhooks, notifications, audit depth |
 | 0019 | Apps & git deploy (release-symlink model) |
 | 0020 | Migration center (cpmove, verify-first) |
+| 0021 | Extension SDK runtime (out-of-process, scope-reviewed) |
+| 0022 | Installer ships the web origin as a systemd unit (not a static export) |
 
 ---
 
@@ -123,11 +125,16 @@ Getting-started and server-settings chapters as the runbook.
 
 ## 6. What's Next
 
-1. **Live-VM acceptance run** (Section 3 pending rows, now including P7's
-   example-extension E2E + the full SLO pass) — the only thing standing
-   between "built" and "proven on real hardware" for P4–P7.
+1. **Live-VM acceptance run** — the procedure now exists:
+   `docs/runbooks/acceptance-p4-p7.md` (install.sh first drive + one verdict
+   table per pending Section 3 row, evidence captured to
+   `/root/acceptance-evidence/`). Execute it on a fresh VM and record the
+   verdicts.
 2. **P7 remainder:** per-call confirmation queue for extension write scopes
    (v1.x trust levels, ADR-0021 §2), extension storage namespaces (SDK spec
-   §8), the `install.sh` script that implements the finalized
-   `docs/release/INSTALLER_V1.md`, GA tag + changelog.
-3. Standing: rotate the current push token if not already done.
+   §8), GA tag + changelog. (`install.sh` itself has landed — its first real
+   drive is step 1 of the runbook.)
+3. **First release:** push a `v*` tag — `release.yml` builds the agent binary,
+   SBOMs and keyless cosign signatures; no secrets setup required.
+4. Standing: revoke the tokens exposed in chat; issue a fresh one-time token
+   for the next push.

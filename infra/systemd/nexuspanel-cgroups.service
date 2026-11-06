@@ -1,0 +1,34 @@
+# One-shot preparer: the DELEGATED cgroup v2 root for hosting accounts.
+#
+# The agent's isolation.provision does `MkdirAll <root>/nexuspanel/<username>`
+# and its own doc comment says "mkdir inside the DELEGATED cgroup v2
+# hierarchy" (apps/agent/internal/commands/isolation.go). Delegation means:
+# the controllers the account slices may use are enabled on the PARENT's
+# subtree_control, and the directory exists with sane ownership.
+#
+# Runs before the agent on every boot — cgroup subtree_control is reset when
+# the host reboots, so this cannot be install-time-only work.
+
+[Unit]
+Description=NexusPanel — delegated cgroup v2 root for hosting accounts
+Documentation=https://github.com/backupamunga-ops/nexus_cpanel
+DefaultDependencies=no
+After=systemd-sysusers.service
+Before=multi-user.target nexuspanel-agent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c '\
+  mkdir -p /sys/fs/cgroup/nexuspanel && \
+  chown root:nexuspanel /sys/fs/cgroup/nexuspanel && \
+  chmod 0750 /sys/fs/cgroup/nexuspanel && \
+  for c in cpu memory pids; do \
+    if grep -qw "$c" /sys/fs/cgroup/cgroup.controllers && \
+       ! grep -qw "$c" /sys/fs/cgroup/cgroup.subtree_control; then \
+      echo "+$c" >> /sys/fs/cgroup/cgroup.subtree_control; \
+    fi; \
+  done'
+
+[Install]
+WantedBy=multi-user.target
