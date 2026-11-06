@@ -11,7 +11,7 @@ A single-node Ubuntu 22.04+/Debian 12 host running:
 
 | Component | How it runs | Privilege |
 |---|---|---|
-| PostgreSQL 16 | systemd service (native package, not docker, on production hosts) | `postgres` |
+| PostgreSQL ≥ 16 | systemd service (native package, not docker, on production hosts) — PGDG 16 where the codename is published, distro-archive PostgreSQL otherwise (Ubuntu 26.04 ships 18; live-VM acceptance finding) | `postgres` |
 | Control plane (`apps/control-plane`) | `systemd/nexuspanel-api.service` | unprivileged `nexuspanel` user |
 | Web (`apps/web`) | `systemd/nexuspanel-web.service` — Next.js server, loopback-only (**amended by ADR-0022**: the app's same-origin `/api/v1` rewrites need the Node server, so it is not a static export) | unprivileged `nexuspanel` user |
 | Agent (`apps/agent`) | `systemd/nexuspanel-agent.service` | root — the ONLY root-adjacent process, explicit capability set, no auto-root (infra/README, agent spec §2) |
@@ -26,7 +26,9 @@ Non-negotiables carried from infra/README.md:
 
 ## 2. Steps (each maps 1:1 to a proven runbook step)
 
-1. **Packages** — install postgresql-16, node ≥ 20 (NodeSource), go ≥ 1.23
+1. **Packages** — install PostgreSQL (16 from PGDG when the codename is
+   published; the distro archive otherwise, floor ≥ 16 — the canonical DDL and
+   Prisma use nothing 16-specific), node ≥ 20 (NodeSource), go ≥ 1.23
    (toolchain only for the agent build), git. `docker` is NOT required on
    production hosts; the dev compose file is a dev-rig convenience.
 2. **Database** — create role `nexuspanel` + database `nexuspanel`; apply

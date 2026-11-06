@@ -54,7 +54,7 @@ preflight() {
   local distro ver
   distro="$(lsb_release -is)"; ver="$(lsb_release -rs)"
   case "$distro:$ver" in
-    Ubuntu:22.*|Ubuntu:24.*|Debian:12*|Debian:13*) ;; # supported per installer spec §1
+    Ubuntu:22.*|Ubuntu:24.*|Ubuntu:26.*|Debian:12*|Debian:13*) ;; # supported per installer spec §1
     *) die "unsupported OS: $distro $ver (need Ubuntu 22.04+/Debian 12+)" ;;
   esac
   CODENAME="$(lsb_release -cs)"
@@ -70,22 +70,35 @@ Re-run only after moving them away deliberately, or use '$0 upgrade'."
 
 # --- step 1: packages --------------------------------------------------------
 install_packages() {
-  log "step 1/8 — packages (postgresql-16, node ${NODE_MAJOR}, go ${GO_VERSION}, git, hardening)"
+  log "step 1/8 — packages (postgresql ≥16, node ${NODE_MAJOR}, go ${GO_VERSION}, git, hardening)"
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
   apt-get install -y -qq ca-certificates curl gnupg openssl git lsb-release >/dev/null
 
-  # PostgreSQL 16 — PGDG repo (manual keyring setup; nothing piped into a shell)
-  curl -fsSL "https://www.postgresql.org/media/keys/ACCC4CF8.asc" -o /usr/share/keyrings/postgresql.gpg
-  echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt ${CODENAME}-pgdg main" \
-    > /etc/apt/sources.list.d/pgdg.list
+  # PostgreSQL — PGDG 16 when the codename is published; the distro archive
+  # otherwise. PGDG lags brand-new Ubuntu releases (no resolute/26.04 dist at
+  # the time of the live-VM acceptance run, whose archive ships PG 18) —
+  # finding of that run; the DDL and Prisma target PostgreSQL ≥ 16 (ADR-0004).
+  if curl -fsSI --max-time 20 \
+      "https://apt.postgresql.org/pub/repos/dists/${CODENAME}-pgdg/Release" >/dev/null 2>&1; then
+    PG_PKG=postgresql-16
+    curl -fsSL "https://www.postgresql.org/media/keys/ACCC4CF8.asc" -o /usr/share/keyrings/postgresql.gpg
+    echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt ${CODENAME}-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list
+  else
+    PG_PKG=postgresql
+    log "  (PGDG has no ${CODENAME} dist — using the distro archive PostgreSQL)"
+  fi
   # Node.js ${NODE_MAJOR} — NodeSource repo (manual keyring setup)
   curl -fsSL "https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key" \
     | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
   echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
     > /etc/apt/sources.list.d/nodesource.list
   apt-get update -qq
-  apt-get install -y -qq postgresql-16 nodejs ufw fail2ban unattended-upgrades >/dev/null
+  apt-get install -y -qq "$PG_PKG" nodejs ufw fail2ban unattended-upgrades >/dev/null
+  local pg_major
+  pg_major="$(psql --version | sed -E 's/.*\) ([0-9]+).*/\1/')"
+  [ "${pg_major:-0}" -ge 16 ] || die "PostgreSQL ≥ 16 required — archive offered ${pg_major:-unknown}"
 
   # Go toolchain — only for building the agent. Debian/Ubuntu archive versions
   # are too old for go.mod (go 1.23); use the official tarball. Verify the

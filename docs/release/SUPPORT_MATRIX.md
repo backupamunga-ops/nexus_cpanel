@@ -11,8 +11,9 @@ acceptance run (AS-BUILT §3).
 |---|---|---|
 | Ubuntu 22.04 LTS | amd64 | dev-rig verified — live-VM acceptance pending |
 | Ubuntu 24.04 LTS | amd64 | expected (same package set) — untested |
+| Ubuntu 26.04 LTS | amd64 | **live-VM acceptance run host** (PGDG has no resolute dist → archive PG 18; installer adapted by that run) |
 | Debian 12 | amd64 | expected (runbook prerequisite) — untested |
-| any distro with systemd + PostgreSQL 16 + Node ≥ 20 | amd64 | best-effort — installer not published yet |
+| any distro with systemd + PostgreSQL ≥ 16 + Node ≥ 20 | amd64 | best-effort — installer published |
 
 The agent requires Linux: cgroup v2 slices, nftables, ModSecurity/ClamAV
 integration, Dovecot/Postfix maps. There is no non-Linux agent, by design.
@@ -21,7 +22,7 @@ integration, Dovecot/Postfix maps. There is no non-Linux agent, by design.
 
 | Component | Version | Notes |
 |---|---|---|
-| PostgreSQL | 16 | 38-table canonical DDL (ADR-0004); uuidv7 via pgcrypto-style helpers |
+| PostgreSQL | 16 (PGDG) / ≥ 16 archive fallback | 38-table canonical DDL (ADR-0004); uuidv7 via pgcrypto-style helpers; Ubuntu 26.04 acceptance host runs 18 |
 | Node.js | ≥ 20 (CI pins 22) | control plane + web, npm workspaces |
 | Go | ≥ 1.23 (go.mod toolchain) | build-time only |
 | Valkey / Redis | 8.x | dev compose ships Valkey 8; queue work is BullMQ-shaped (ADR-0018) |
