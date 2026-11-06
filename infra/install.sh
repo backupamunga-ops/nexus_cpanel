@@ -155,6 +155,9 @@ create_keys() {
   # root:nexuspanel — root-owned, never service-WRITABLE, invisible to every
   # other user. (The original 0700 root + 0600 root crashed the control
   # plane at boot; '0400 root' was unachievable with an unprivileged unit.)
+  # (finding #7, same run: the service GROUP is needed here already — step 4
+  # creates the user; the group must exist before this install -d)
+  getent group "$NP_SVC_USER" >/dev/null || groupadd --system "$NP_SVC_USER"
   install -d -m 0750 -o root -g "$NP_SVC_USER" "$NP_KEYS"
   umask 077
   openssl genpkey -algorithm ed25519 -out "$NP_KEYS/control-plane-signing.key" 2>/dev/null
