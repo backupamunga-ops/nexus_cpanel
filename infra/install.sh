@@ -233,11 +233,11 @@ install_units() {
   wait_health "agent socket" \
     '[ -S /run/nexuspanel/agent.sock ]'
   wait_health "control plane" \
-    'curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null'
+    'curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1'
   # Finding #9b, acceptance attempt 8: the web unit was never health-gated —
   # a dead web origin exited 0. Gate it like the API.
   wait_health "web origin" \
-    'curl -fsS -o /dev/null http://127.0.0.1:5173/'
+    'curl -fsS -o /dev/null http://127.0.0.1:5173/ 2>&1'
   ok "units active — health gate passed"
 }
 
@@ -317,15 +317,21 @@ ${domain} {
         }
 }
 EOF
+  caddy fmt --overwrite "$PUBLIC_ORIGIN_CONF" >/dev/null 2>&1 || true
   caddy validate --config "$PUBLIC_ORIGIN_CONF" >/dev/null || die "generated Caddyfile failed validation"
   ufw allow 80/tcp  >/dev/null
   ufw allow 443/tcp >/dev/null
-  systemctl enable --now caddy >/dev/null 2>&1 || systemctl restart caddy
+  systemctl enable caddy >/dev/null 2>&1 || true
+  # Finding #14, public-origin attempt 1: the package's postinst STARTS Caddy
+  # with the distro default config (a :80 welcome site). 'enable --now' was a
+  # no-op on the already-active unit, so this Caddyfile never loaded and 443
+  # stayed unbound. Restart unconditionally — loading this config is the point.
+  systemctl restart caddy >/dev/null 2>&1
 
   log "public origin — waiting for certificate issuance + first TLS request (up to 120s)"
   wait_health "https origin (https://$domain/api/v1/health)" \
-    "curl -fsS https://$domain/api/v1/health >/dev/null" 120
-  curl -fsS -o /dev/null "https://$domain/" || die "api answers over TLS but the web origin does not — journalctl -u caddy -e && systemctl status nexuspanel-web"
+    "curl -fsS https://$domain/api/v1/health >/dev/null 2>&1" 120
+  curl -fsS -o /dev/null "https://$domain/" 2>/dev/null || die "api answers over TLS but the web origin does not — journalctl -u caddy -e && systemctl status nexuspanel-web"
   ok "public origin live: https://$domain  (HTTP→HTTPS redirect + auto-renewal)"
   echo "  tunnels are no longer needed; the API (:3000) and web (:5173) stay loopback-only"
   echo "  optional hardening — restrict the panel to your IPs, add above the route block:"
@@ -365,7 +371,7 @@ create_first_admin() {
     --setenv=DEV_ADMIN_PASSWORD="$pass" \
     /usr/bin/node dist/main.js >/dev/null
   wait_health "bootstrap control plane" \
-    'curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null'
+    'curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1'
   local code
   code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/v1/auth/login \
     -H 'Content-Type: application/json' \
@@ -377,9 +383,9 @@ create_first_admin() {
   # (its unit uses Wants=, not Requires=).
   systemctl start nexuspanel-api.service nexuspanel-web.service
   wait_health "control plane (final)" \
-    'curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null'
+    'curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1'
   wait_health "web origin (final)" \
-    'curl -fsS -o /dev/null http://127.0.0.1:5173/'
+    'curl -fsS -o /dev/null http://127.0.0.1:5173/ 2>&1'
   NP_ADMIN_EMAIL="$email" NP_ADMIN_PASSWORD="$pass"
   ok "super admin created and verified (seed env discarded with the transient unit)"
 }
@@ -458,7 +464,7 @@ do_upgrade() {
   systemctl daemon-reload
   echo "note: forward-only DDL migrations are applied by hand when shipped (ADR-0004); none pending at v1.0."
   systemctl start nexuspanel-api.service nexuspanel-web.service
-  wait_health "control plane" 'curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null'
+  wait_health "control plane" 'curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1'
   ok "upgrade complete — run POST /api/v1/audit/verify to confirm the chain"
 }
 
