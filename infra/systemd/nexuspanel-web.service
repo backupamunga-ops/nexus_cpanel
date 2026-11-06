@@ -10,7 +10,11 @@ Description=NexusPanel web origin (Next.js)
 Documentation=https://github.com/backupamunga-ops/nexus_cpanel
 After=network-online.target nexuspanel-api.service
 Wants=network-online.target
-Requires=nexuspanel-api.service
+# Wants (not Requires): deactivating the API must not take the web origin
+# down with it — finding #10 of the live-VM acceptance run, where the
+# installer's admin-seed step legitimately bounces the API on :3000 and
+# Requires= silently stopped web with it. Ordering is provided by After=.
+Wants=nexuspanel-api.service
 
 [Service]
 Type=simple

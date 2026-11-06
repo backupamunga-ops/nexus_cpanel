@@ -279,9 +279,14 @@ create_first_admin() {
     -d "{\"email\":\"$email\",\"password\":\"$pass\"}")"
   [ "$code" = "200" ] || { systemctl stop nexuspanel-bootstrap || true; die "admin login failed (HTTP $code)"; }
   systemctl stop nexuspanel-bootstrap >/dev/null
-  systemctl start nexuspanel-api.service
+  # Finding #10, same run: start BOTH Node services here — the bootstrap
+  # bounce must leave a fully-up panel, and web no longer dies with the API
+  # (its unit uses Wants=, not Requires=).
+  systemctl start nexuspanel-api.service nexuspanel-web.service
   wait_health "control plane (final)" \
     'curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null'
+  wait_health "web origin (final)" \
+    'curl -fsS -o /dev/null http://127.0.0.1:5173/'
   NP_ADMIN_EMAIL="$email" NP_ADMIN_PASSWORD="$pass"
   ok "super admin created and verified (seed env discarded with the transient unit)"
 }
