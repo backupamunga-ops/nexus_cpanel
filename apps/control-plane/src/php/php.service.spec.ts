@@ -44,14 +44,25 @@ function harness() {
     userHostingAccountAccess: {
       findFirst: jest.fn(async () => null),
     },
+    domainAliase: {
+      findMany: jest.fn(async () => []),
+    },
+    redirect: {
+      findMany: jest.fn(async () => []),
+    },
     configVersion: {
+      // target_type matters: php_pool and nginx_vhost rows share the same
+      // target_id (the domain) — the real Prisma filters by both.
       findFirst: jest.fn(
         async ({ where, orderBy }: { where: Record<string, unknown>; orderBy?: Record<string, string> }) => {
-          if (where['is_active'] === true) {
-            return versions.find((v) => v['is_active'] === true && v['target_id'] === where['target_id']) ?? null;
-          }
+          void orderBy;
           const rows = versions
-            .filter((v) => v['target_id'] === where['target_id'])
+            .filter(
+              (v) =>
+                v['target_id'] === where['target_id'] &&
+                (where['target_type'] === undefined || v['target_type'] === where['target_type']) &&
+                (where['is_active'] === undefined || v['is_active'] === where['is_active']),
+            )
             .sort((a, b) => Number(b['version']) - Number(a['version']));
           return rows[0] ?? null;
         },
@@ -64,7 +75,11 @@ function harness() {
       updateMany: jest.fn(
         async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
           for (const v of versions) {
-            if (v['target_id'] === where['target_id'] && v['is_active'] === true) {
+            if (
+              v['target_id'] === where['target_id'] &&
+              v['target_type'] === where['target_type'] &&
+              v['is_active'] === true
+            ) {
               Object.assign(v, data);
             }
           }
@@ -89,6 +104,12 @@ function harness() {
     })),
     phpDeletePool: jest.fn(async () => ({ status: 'removed' })),
     phpListVersions: jest.fn(async () => ({ installed: ['8.2', '8.3'] })),
+    nginxApplyVhost: jest.fn(async (_domain: string, _content: string) => ({
+      status: 'applied',
+      health_check: 'skipped',
+      previous_existed: true,
+    })),
+    nginxReload: jest.fn(async () => ({ status: 'reloaded' })),
   };
   const svc = new PhpService(
     prisma as unknown as PrismaService,
@@ -119,10 +140,15 @@ describe('php.update lifecycle', () => {
     expect(h.agent.phpCreatePool).toHaveBeenCalledWith('alice', 'example.com', '8.2', expect.any(Object));
     expect(view.php_version).toBe('8.2');
     expect(view.pool?.version).toBe('8.2');
-    expect(h.versions).toHaveLength(1);
-    const stored = JSON.parse(h.versions[0]['content'] as string);
+    // php_pool v1 for the pool + the fastcgi-refreshed nginx_vhost v1.
+    expect(h.versions).toHaveLength(2);
+    const poolRow = h.versions.find((v) => v['target_type'] === 'php_pool');
+    const vhostRow = h.versions.find((v) => v['target_type'] === 'nginx_vhost');
+    const stored = JSON.parse(poolRow!['content'] as string);
     expect(stored.config['pm.max_children']).toBe(12);
     expect(stored.conf_content).toContain('8.2');
+    expect(vhostRow!['content']).toContain('fastcgi_pass unix:/run/php/php8.2-fpm-example.com.sock;');
+    expect(h.agent.nginxReload).toHaveBeenCalled();
   });
 
   it('modifies in place on a config change, recreates on a version change', async () => {
@@ -139,19 +165,23 @@ describe('php.update lifecycle', () => {
     expect(h.agent.phpCreatePool).toHaveBeenLastCalledWith('alice', 'example.com', '8.3', expect.anything());
   });
 
-  it('removes the pool and clears the version', async () => {
+  it('removes the pool and clears the version (vhost reverts to static)', async () => {
     const h = harness();
     await h.svc.update(DOMAIN.id, { php_version: '8.2' }, SUPER);
     await h.svc.update(DOMAIN.id, { php_version: null }, SUPER);
     expect(h.agent.phpDeletePool).toHaveBeenCalledWith('alice', 'example.com', '8.2');
     expect(DOMAIN.php_version).toBeNull();
     expect(h.versions[0]['is_active']).toBe(false);
+    const lastVhost = h.agent.nginxApplyVhost.mock.calls.at(-1) as [string, string];
+    expect(lastVhost[1]).not.toContain('fastcgi_pass');
   });
 
   it('refuses versions outside the package allowlist and unknown versions', async () => {
     const h = harness();
     await expect(h.svc.update(DOMAIN.id, { php_version: '8.1' }, SUPER)).rejects.toThrow(/not offered/);
-    await expect(h.svc.update(DOMAIN.id, { php_version: '7.4' }, SUPER)).rejects.toThrow(/8\.1 \| 8\.2 \| 8\.3 \| 8\.4/);
+    await expect(h.svc.update(DOMAIN.id, { php_version: '7.4' }, SUPER)).rejects.toThrow(
+      /8\.1 \| 8\.2 \| 8\.3 \| 8\.4 \| 8\.5/,
+    );
   });
 
   it('refuses removal when no pool exists and 404s invisible domains', async () => {

@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { InMemoryAuditService } from '../audit/audit.service';
+import { PhpService } from '../php/php.service';
 import { SitesService, renderVhost, Actor } from './sites.service';
 
 /**
@@ -88,7 +89,7 @@ function harness(opts: { accessRows?: Array<{ user_id: string; hosting_account_i
         first(domains, where),
       ),
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
-        const row = { id: nextId(), php_version: null, ...data, created_at: new Date(), updated_at: new Date() };
+        const row = { id: nextId(), php_version: null, deleted_at: null, ...data, created_at: new Date(), updated_at: new Date() };
         domains.push(row);
         return row;
       }),
@@ -249,6 +250,26 @@ function harness(opts: { accessRows?: Array<{ user_id: string; hosting_account_i
     })),
     nginxRemoveVhost: jest.fn(async (_domain: string) => ({ status: 'removed', health_check: 'skipped' })),
     nginxTest: jest.fn(async () => ({ status: 'skipped', detail: 'nginx binary not found on this node' })),
+    nginxReload: jest.fn(async () => ({ status: 'skipped', detail: 'nginx binary not found on this node' })),
+    phpCreatePool: jest.fn(async (_username: string, _domain: string, version: string, _config: unknown) => ({
+      status: 'applied',
+      version,
+      pool_file: `/etc/php/${version}/pools/example.com.conf`,
+      conf_content: `[example.com]\nlisten = /run/php/php${version}-fpm-example.com.sock\n`,
+      fpm_reload: 'reloaded',
+    })),
+    phpModifyPool: jest.fn(async (_username: string, _domain: string, version: string, _config: unknown) => ({
+      status: 'applied',
+      version,
+      pool_file: `/etc/php/${version}/pools/example.com.conf`,
+      conf_content: 'rendered',
+      fpm_reload: 'reloaded',
+    })),
+    phpDeletePool: jest.fn(async (_username: string, _domain: string, version: string) => ({
+      status: 'removed',
+      version,
+      fpm_reload: 'reloaded',
+    })),
     filesystemRead: jest.fn(async (_username: string, path: string) => ({
       path,
       size_bytes: 0,
@@ -261,6 +282,7 @@ function harness(opts: { accessRows?: Array<{ user_id: string; hosting_account_i
     prisma as unknown as PrismaService,
     agent as unknown as ConstructorParameters<typeof SitesService>[1],
     audit,
+    new PhpService(prisma as unknown as PrismaService, agent as unknown as ConstructorParameters<typeof PhpService>[1], audit),
   );
   return { svc, prisma, agent, audit, domains, subdomains, aliases, redirects, versions, accessRows };
 }
@@ -306,6 +328,20 @@ describe('renderVhost', () => {
 
   it('refuses docroots outside /home/<username>/ (log paths would be unconstrained)', () => {
     expect(() => renderVhost('example.com', '/srv/www', [], [])).toThrow(BadRequestException);
+  });
+
+  it('renders a fastcgi block pointed at the site pool socket when a php version is set', () => {
+    const a = renderVhost('dev.example.com', '/home/a/www', [], [], '8.5');
+    expect(a).toContain('index index.php index.html index.htm;');
+    expect(a).toContain('location ~ \\.php$ {');
+    expect(a).toContain('fastcgi_pass unix:/run/php/php8.5-fpm-dev.example.com.sock;');
+    expect(a).toContain('fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;');
+  });
+
+  it('stays static (no index.php, no fastcgi) without a php version', () => {
+    const a = renderVhost('example.com', '/home/a/www', [], [], null);
+    expect(a).toContain('index index.html index.htm;');
+    expect(a).not.toContain('fastcgi_pass');
   });
 });
 
@@ -397,7 +433,7 @@ describe('domain create', () => {
     expect(h.agent.nginxApplyVhost).not.toHaveBeenCalled();
   });
 
-  it('provisions agent-first and writes v1 of the vhost history', async () => {
+  it('provisions agent-first, then attaches php (pool + fastcgi vhost + reload)', async () => {
     const h = harness();
     const dto = await h.svc.create(
       { name: 'Example.COM', hosting_account_id: ACCOUNT.id, php_version: '8.3' },
@@ -407,9 +443,31 @@ describe('domain create', () => {
     expect(dto.php_version).toBe('8.3');
     expect(dto.account_username).toBe('alice');
     expect(h.agent.filesystemMkdir).toHaveBeenCalledWith('alice', '/home/alice/domains/example.com/public_html', 0o755);
-    expect(h.agent.nginxApplyVhost).toHaveBeenCalledTimes(1);
-    expect(h.versions).toHaveLength(1);
-    expect(h.versions[0]).toMatchObject({ target_type: 'nginx_vhost', version: 1, is_active: true });
+    // Two applies: the baseline static block, then the fastcgi re-render from
+    // the php attach. nginx is reloaded after each.
+    expect(h.agent.nginxApplyVhost).toHaveBeenCalledTimes(2);
+    const last = h.agent.nginxApplyVhost.mock.calls.at(-1) as [string, string];
+    expect(last[1]).toContain('fastcgi_pass unix:/run/php/php8.3-fpm-example.com.sock;');
+    expect(h.agent.nginxReload).toHaveBeenCalledTimes(2);
+    expect(h.agent.phpCreatePool).toHaveBeenCalledWith('alice', 'example.com', '8.3', expect.anything());
+    expect(h.versions).toHaveLength(3); // vhost v1 + php_pool v1 + vhost v2
+    expect(
+      h.versions.filter((v) => v['target_type'] === 'nginx_vhost').map((v) => v['version']),
+    ).toEqual([1, 2]);
+  });
+
+  it('returns an honest static site (php_version null + audited failure) when php attach fails', async () => {
+    const h = harness();
+    h.agent.phpCreatePool.mockRejectedValueOnce(new Error('PHP 8.3 is not installed on this node'));
+    const dto = await h.svc.create(
+      { name: 'ok.example.com', hosting_account_id: ACCOUNT.id, php_version: '8.3' },
+      SUPER,
+    );
+    expect(dto.php_version).toBe(null); // the site exists, but is static
+    expect(h.domains[0]['php_version']).toBe(null);
+    const ops = h.audit.list().filter((e) => e.operation === 'site.php.attach');
+    expect(ops).toHaveLength(1);
+    expect(ops[0].outcome).toBe('failure');
   });
 
   it('rejects duplicate domains and docroot escapes without touching the agent', async () => {
@@ -491,6 +549,40 @@ describe('domain update', () => {
     );
     expect(h.agent.nginxApplyVhost).not.toHaveBeenCalled();
   });
+
+  it('delegates php changes to the php service (create, switch, detach) and keeps the column honest', async () => {
+    const h = harness();
+    seedDomain(h, { php_version: '8.2' });
+    // A site created through the real flow has an active pool row under the
+    // column's version — seed it so the switch is delete-old + create-new.
+    h.versions.push({ id: uid(30), target_type: 'php_pool', target_id: uid(10), version: 1, content: JSON.stringify({ version: '8.2', config: {} }), is_active: true, created_at: new Date() });
+    // Switch 8.2 → 8.3: old pool deleted, new pool created, vhost re-rendered.
+    await h.svc.update(uid(10), { php_version: '8.3' }, SUPER);
+    expect(h.agent.phpDeletePool).toHaveBeenCalledWith('alice', 'example.com', '8.2');
+    expect(h.agent.phpCreatePool).toHaveBeenCalledWith('alice', 'example.com', '8.3', expect.anything());
+    const applied = h.agent.nginxApplyVhost.mock.calls.at(-1) as [string, string];
+    expect(applied[1]).toContain('fastcgi_pass unix:/run/php/php8.3-fpm-example.com.sock;');
+    expect(h.domains[0]['php_version']).toBe('8.3');
+  });
+
+  it('detaching php removes the pool and re-renders a static vhost', async () => {
+    const h = harness();
+    seedDomain(h, { php_version: '8.2' });
+    h.versions.push({ id: uid(30), target_type: 'php_pool', target_id: uid(10), version: 1, content: JSON.stringify({ version: '8.2', config: {} }), is_active: true, created_at: new Date() });
+    await h.svc.update(uid(10), { php_version: null }, SUPER);
+    expect(h.agent.phpDeletePool).toHaveBeenCalledWith('alice', 'example.com', '8.2');
+    const applied = h.agent.nginxApplyVhost.mock.calls.at(-1) as [string, string];
+    expect(applied[1]).not.toContain('fastcgi_pass');
+    expect(h.domains[0]['php_version']).toBe(null);
+  });
+
+  it('detaching php on a site that never had a pool is a tolerated no-op', async () => {
+    const h = harness();
+    seedDomain(h, { php_version: '8.2' }); // column says php, node lost the pool
+    await expect(h.svc.update(uid(10), { php_version: null }, SUPER)).resolves.toBeTruthy();
+    expect(h.agent.phpDeletePool).not.toHaveBeenCalled();
+    expect(h.domains[0]['php_version']).toBe(null);
+  });
 });
 
 describe('domain delete', () => {
@@ -515,6 +607,16 @@ describe('domain delete', () => {
     expect(h.subdomains[0]['deleted_at']).not.toBeNull();
     expect(h.aliases[0]['deleted_at']).not.toBeNull();
     expect(h.versions[0]['is_active']).toBe(false);
+  });
+
+  it('detaches the php pool before removing the vhost (no orphaned pools)', async () => {
+    const h = harness();
+    seedDomain(h, { php_version: '8.2' });
+    h.versions.push({ id: uid(30), target_type: 'php_pool', target_id: uid(10), version: 1, content: JSON.stringify({ version: '8.2', config: {} }), is_active: true, created_at: new Date() });
+    await h.svc.remove(uid(10), SUPER);
+    expect(h.agent.phpDeletePool).toHaveBeenCalledWith('alice', 'example.com', '8.2');
+    expect(h.agent.nginxRemoveVhost).toHaveBeenCalledWith('example.com');
+    expect(h.domains[0]['deleted_at']).not.toBeNull();
   });
 });
 
@@ -703,6 +805,7 @@ describe('panel hostname reservation (live-VM finding #16, ADR-0024)', () => {
       SUPER,
     );
     expect(dto.name).toBe(PANEL);
-    expect(h.agent.nginxApplyVhost).toHaveBeenCalledTimes(1);
+    // 1 baseline static apply + 1 fastcgi re-render from the php attach.
+    expect(h.agent.nginxApplyVhost).toHaveBeenCalledTimes(2);
   });
 });

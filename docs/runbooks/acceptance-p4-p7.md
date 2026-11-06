@@ -169,8 +169,10 @@ an external receiver (Gmail) shows DKIM **and** SPF **and** DMARC as pass.
 ## 4. B09 — live MariaDB round trip (ADR-0015)
 
 ```bash
-apt-get install -y mariadb-server   # MariaDB 11.x per the MariaDB repo if the
-                                    # archive is older — the panel targets 11
+apt-get install -y mariadb-server   # MariaDB 11.x — verified live on Ubuntu
+                                    # 26.04: archive ships 11.8.6, the agent
+                                    # provisions over the Unix socket (root,
+                                    # unix_socket auth), zero password setup
 ```
 
 In the panel (Databases): create database `shop`, user `shop_user`, note the
@@ -263,6 +265,27 @@ the audit view.
 then deleted AND restored through audited flows.
 
 ## 8. B14 — WordPress under 5 minutes + push-to-deploy rollback (ADR-0019)
+
+Node prep (the panel names the missing binary honestly if you skip this —
+findings #17/#18, live run 2026-11-06):
+
+```bash
+apt-get install -y mariadb-server php8.5-fpm php8.5-cli php8.5-mysql \
+  php8.5-curl php8.5-gd php8.5-xml php8.5-mbstring php8.5-zip php8.5-intl
+curl -sSLo /usr/local/bin/wp \
+  https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+chmod +x /usr/local/bin/wp
+mkdir -p /etc/php/8.5/pools
+printf '; managed by nexuspanel\ninclude=/etc/php/8.5/pools/*.conf\n' \
+  > /etc/php/8.5/fpm/pool.d/zz-nexuspanel-pools.conf
+systemctl enable --now mariadb php8.5-fpm
+```
+
+(Ubuntu 26.04 note: ondrej/php has no resolute dist — use the distro's PHP
+8.5; the panel's allowlist covers 8.1–8.5. wp-cli is not packaged in
+resolute — the official phar above. Account homes are chmodded 0751 by the
+agent at create time so nginx can traverse; homes made before that fix need
+`chmod 0751 /home/<user>` once.)
 
 Create a fresh hosting account and site (`wp.host.example.com`, PHP 8.x pool),
 then **Apps → Install WordPress**. Stop the clock at install start; the clock

@@ -10,6 +10,13 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditAppender, InjectAudit } from '../audit/audit.service';
 import { AgentClientService } from '../agent/agent-client.service';
+import { PhpService } from '../php/php.service';
+import { renderVhost, logsDirForDocroot } from './vhost';
+
+// The vhost renderer lives in ./vhost — shared with the php service, which
+// refreshes the server block whenever a pool changes. Re-exported so the
+// existing import sites keep working.
+export { renderVhost, logsDirForDocroot } from './vhost';
 
 /**
  * Sites & domains (API spec §4.7) — the P3 web-serving core.
@@ -36,7 +43,11 @@ const FQDN_RE = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const DOMAIN_TYPES = new Set(['primary', 'addon', 'parked']);
 const REDIRECT_CODES = new Set([301, 302, 307, 308]);
-const PHP_VERSIONS = new Set(['8.1', '8.2', '8.3', '8.4']);
+// 8.5 joins the allowlist for distro-PHP nodes (Ubuntu 26.04 ships 8.5 and
+// the ondrej/php repo has no resolute dist yet) — the same "use the distro
+// archive on brand-new releases" ruling the installer already makes for
+// PostgreSQL and Go.
+const PHP_VERSIONS = new Set(['8.1', '8.2', '8.3', '8.4', '8.5']);
 
 /**
  * Values embedded into nginx configuration get a strict allowlist, not a
@@ -125,6 +136,7 @@ export class SitesService {
     private readonly prisma: PrismaService,
     private readonly agent: AgentClientService,
     @InjectAudit() private readonly audit: AuditAppender,
+    private readonly php: PhpService,
   ) {}
 
   // ------------------------------------------------------------------ domains
@@ -241,6 +253,10 @@ export class SitesService {
       await this.agent.filesystemMkdir(account.username, docroot, 0o755);
       await this.agent.filesystemMkdir(account.username, logsDirForDocroot(docroot), 0o755);
       await this.agent.nginxApplyVhost(name, renderVhost(name, docroot, [], []));
+      // A running nginx reads conf.d only on reload — apply without reload
+      // leaves the block parked until some future restart. Skipped honestly
+      // on nodes without the binary.
+      await this.agent.nginxReload();
     } catch (e) {
       await this.audit.append({
         operation: 'site.create',
@@ -274,8 +290,37 @@ export class SitesService {
       });
       return created;
     });
+
+    // PHP attach: the pool lifecycle (pool create, php_pool config_versions,
+    // the domain's php_version column, the fastcgi vhost re-render + reload)
+    // is the php service's single code path. A failure leaves the site live
+    // and static — the honest pre-PHP state — audited here, reported by the
+    // DTO as php_version null. The operator retries via PATCH php_version.
+    let attachedPhp: string | null = phpVersion;
+    if (phpVersion) {
+      try {
+        await this.php.update(row.id, { php_version: phpVersion }, actor);
+      } catch (e) {
+        attachedPhp = null;
+        // The row was created with the requested version before the attach
+        // ran — roll the column back to null so it stays honest with the
+        // node (no pool exists).
+        row.php_version = null;
+        await this.prisma.domain
+          .update({ where: { id: row.id }, data: { php_version: null, updated_at: new Date() } })
+          .catch(() => undefined);
+        this.logger.error(`php ${phpVersion} attach failed for ${name}: ${(e as Error).message}`);
+        await this.audit.append({
+          operation: 'site.php.attach',
+          parameters: { domain_id: row.id, name, version: phpVersion, error: (e as Error).message },
+          outcome: 'failure',
+          actorUserId: actor?.userId ?? null,
+          hostingAccountId: accountId,
+        });
+      }
+    }
     this.logger.log(`created domain ${name} for account ${account.username}`);
-    return toDomainDto({ ...row, hosting_account: { username: account.username } });
+    return toDomainDto({ ...row, php_version: attachedPhp, hosting_account: { username: account.username } });
   }
 
   /**
@@ -295,12 +340,16 @@ export class SitesService {
       }
       data['type'] = input.type;
     }
+    // PHP: validated here, provisioned by delegation below — the php service
+    // owns BOTH the pool lifecycle and the php_version column (never written
+    // from two code paths). undefined = untouched; null/'' = detach.
+    let phpTarget: string | null | undefined;
     if (input.php_version !== undefined) {
       const pkg = await this.prisma.package.findFirst({
         where: { id: account.package_id, deleted_at: null },
         select: { php_versions: true },
       });
-      data['php_version'] = await this.validatePhpVersion(input.php_version, pkg?.php_versions ?? []);
+      phpTarget = await this.validatePhpVersion(input.php_version, pkg?.php_versions ?? []);
     }
     if (input.is_active !== undefined) {
       data['is_active'] = input.is_active === true;
@@ -315,12 +364,29 @@ export class SitesService {
 
     const [aliases, redirects] = await this.loadVhostInputs(row.id);
     const nextDocroot = (data['document_root'] as string) ?? row.document_root;
-    const content = renderVhost(row.name, nextDocroot, aliases, redirects);
+    const finalPhp = phpTarget !== undefined ? phpTarget : row.php_version;
+    const content = renderVhost(row.name, nextDocroot, aliases, redirects, finalPhp);
+
+    // Pool lifecycle FIRST: it re-renders the vhost against the current
+    // committed docroot (a docroot change below re-renders again with the
+    // new one — two applies that converge). "Nothing to remove" on a site
+    // that never had PHP is the desired state, not an error.
+    if (phpTarget !== undefined) {
+      try {
+        await this.php.update(row.id, { php_version: phpTarget }, actor);
+      } catch (e) {
+        if (phpTarget !== null || !/no PHP pool to remove/.test((e as Error).message)) {
+          throw e;
+        }
+        data['php_version'] = null; // keep the column honest with the node
+      }
+    }
 
     if (reapply) {
       try {
         await this.agent.filesystemMkdir(account.username, nextDocroot, 0o755);
         await this.agent.nginxApplyVhost(row.name, content);
+        await this.agent.nginxReload();
       } catch (e) {
         await this.audit.append({
           operation: 'site.update',
@@ -354,11 +420,30 @@ export class SitesService {
     return toDomainDto({ ...updated, hosting_account: { username: account.username } });
   }
 
-  /** Terminates a site: vhost removed from the node, then the row soft-deleted. */
+  /** Terminates a site: pool detached, vhost removed, then the row soft-deleted. */
   async remove(id: string, actor?: Actor): Promise<void> {
     const row = await this.requireVisibleDomain(id, actor);
+    // Detach PHP first so a deleted domain never leaves an orphaned FPM pool
+    // behind. A site whose pool already vanished detaches as a no-op.
+    if (row.php_version) {
+      try {
+        await this.php.update(row.id, { php_version: null }, actor);
+      } catch (e) {
+        if (!/no PHP pool to remove/.test((e as Error).message)) {
+          await this.audit.append({
+            operation: 'site.delete',
+            parameters: { domain_id: row.id, name: row.name, error: (e as Error).message },
+            outcome: 'failure',
+            actorUserId: actor?.userId ?? null,
+            hostingAccountId: row.hosting_account_id,
+          });
+          throw e;
+        }
+      }
+    }
     try {
       await this.agent.nginxRemoveVhost(row.name);
+      await this.agent.nginxReload();
     } catch (e) {
       await this.audit.append({
         operation: 'site.delete',
@@ -451,6 +536,7 @@ export class SitesService {
       // Shared per-account logs dir — idempotent, created with the first site.
       await this.agent.filesystemMkdir(account.username, logsDirForDocroot(docroot), 0o755);
       await this.agent.nginxApplyVhost(fqdn, renderVhost(fqdn, docroot, [], []));
+      await this.agent.nginxReload();
     } catch (e) {
       await this.audit.append({
         operation: 'site.subdomain.create',
@@ -801,9 +887,10 @@ export class SitesService {
   ): Promise<void> {
     const current = { aliases: await this.activeAliases(domain.id), redirects: await this.activeRedirects(domain.id) };
     const desired = adjust ? adjust(current.aliases, current.redirects) : current;
-    const content = renderVhost(domain.name, domain.document_root, desired.aliases, desired.redirects);
+    const content = renderVhost(domain.name, domain.document_root, desired.aliases, desired.redirects, domain.php_version);
     try {
       await this.agent.nginxApplyVhost(domain.name, content);
+      await this.agent.nginxReload();
     } catch (e) {
       await this.audit.append({
         operation,
@@ -928,7 +1015,7 @@ export class SitesService {
     }
     const v = String(raw);
     if (!PHP_VERSIONS.has(v)) {
-      throw new BadRequestException('php_version must be one of 8.1 | 8.2 | 8.3 | 8.4');
+      throw new BadRequestException('php_version must be one of 8.1 | 8.2 | 8.3 | 8.4 | 8.5');
     }
     if (allowed.length > 0 && !allowed.includes(v)) {
       throw new BadRequestException(`php_version ${v} is not offered by the account's package`);
@@ -992,22 +1079,6 @@ function validateRedirectInput(input: CreateRedirectInput): {
 }
 
 /**
- * Log directory for a site (P3 site logs): <homedir>/logs. The agent's
- * confineHomeDir pins every homedir to /home/<username>, so the log
- * directory derives from the docroot's first two path components — no
- * extra state, deterministic rendering. nginx writes each domain's
- * access/error log there; the panel tails it via the ADR-0008
- * filesystem.read op (zero new agent surface).
- */
-export function logsDirForDocroot(docroot: string): string {
-  const m = /^\/home\/([a-z0-9][a-z0-9_-]{0,31})\//.exec(docroot);
-  if (!m) {
-    throw new BadRequestException('document_root must live under /home/<username>/');
-  }
-  return `/home/${m[1]}/logs`;
-}
-
-/**
  * The panel's own public hostname (ADR-0024): `infra/install.sh public-origin`
  * persists PANEL_PUBLIC_HOSTNAME into /etc/nexuspanel/nexuspanel.env. nginx
  * loads agent-managed site vhosts (conf.d/*.conf) BEFORE the panel-origin
@@ -1026,48 +1097,6 @@ function assertNotPanelHostname(name: string): void {
         ' (a site on the panel hostname would take the panel itself offline)',
     );
   }
-}
-
-/**
- * Renders the nginx vhost. Deterministic and panel-owned: the same domain
- * state always renders the same bytes, which is what makes config_versions
- * history and drift detection meaningful. Per-domain access/error logs are
- * emitted into the account's logs/ directory so the viewer can read them
- * through the confined filesystem.read path.
- */
-export function renderVhost(
-  serverName: string,
-  docroot: string,
-  aliases: string[],
-  redirects: Array<
-    Pick<RedirectDto, 'source_path' | 'destination_url' | 'status_code' | 'is_wildcard'>
-  >,
-): string {
-  const names = [serverName, `www.${serverName}`, ...aliases].join(' ');
-  const logsDir = logsDirForDocroot(docroot);
-  const lines: string[] = [
-    '# managed by nexuspanel — do not edit (drift is reported, not merged)',
-    'server {',
-    '\tlisten 80;',
-    `\tserver_name ${names};`,
-    `\troot ${docroot};`,
-    '\tindex index.html index.htm;',
-    `\taccess_log ${logsDir}/${serverName}.access.log;`,
-    `\terror_log ${logsDir}/${serverName}.error.log;`,
-    '',
-    '\tlocation / {',
-    '\t\ttry_files $uri $uri/ =404;',
-    '\t}',
-  ];
-  for (const r of redirects) {
-    const match = r.is_wildcard ? `^~ ${r.source_path}` : `= ${r.source_path}`;
-    lines.push('', `\t# redirect ${r.source_path} to ${r.destination_url}`);
-    lines.push(`\tlocation ${match} {`);
-    lines.push(`\t\treturn ${r.status_code} ${r.destination_url};`);
-    lines.push('\t}');
-  }
-  lines.push('}', '');
-  return lines.join('\n');
 }
 
 export interface DomainLogDto {

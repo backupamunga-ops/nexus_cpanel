@@ -35,3 +35,25 @@ Improve as we go — each shipped batch picks up the items that touch it.
    (409 with a layman message; live-VM finding #16). UI follow-up: surface
    the reservation inline in the Sites form (pre-click, like item 4) so the
    operator learns the rule before submitting, not after.
+
+## Seeded items (2026-11-06, second live drive — first WordPress attempt)
+
+6. **Node prerequisites, one honest panel (extends item 4).** The first WP
+   install click died on `database.create` (no MariaDB) — by design, but the
+   Apps page should show, pre-click, which node binaries the flow needs and
+   which are missing (mariadb client, wp, php<version>). Same pattern the
+   Sites console uses for nginx (finding #15).
+7. **PHP selector on the Apps → WordPress form.** The WP install targets a
+   site; if that site has no PHP pool the files install but cannot serve.
+   The form should warn (or offer "set PHP 8.5 on this site" inline) before
+   the operator hits a site that installs-but-stays-silent.
+8. **WordPress admin username hint.** The form accepts `admin`; suggest a
+   non-default admin username inline (brute-force target #1 on real WP
+   installs), layman wording: "anything except admin".
+9. **Subdomain PHP.** Subdomain vhosts render static only; the subdomain
+   create form has no PHP selector and php.create_pool is never called for
+   them. Decide: either hide the php_version column for subdomains or wire
+   the same attach flow as primary domains.
+10. **DB password field, generate-by-default.** The create-database form
+    invites typing a password; the panel generates stronger ones. Flip the
+    default to "generated (shown once)" with an opt-in custom field.

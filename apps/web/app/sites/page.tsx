@@ -104,7 +104,8 @@ interface AccountOption {
 }
 
 const DOMAIN_TYPES = ['primary', 'addon', 'parked'];
-const PHP_VERSIONS = ['8.1', '8.2', '8.3', '8.4'];
+// 8.5 = distro PHP on Ubuntu 26.04 (ondrej/php has no resolute dist yet).
+const PHP_VERSIONS = ['8.1', '8.2', '8.3', '8.4', '8.5'];
 
 export default function SitesPage() {
   const [user, setUser] = useState<SessionUser | null>(null);
@@ -749,7 +750,7 @@ export default function SitesPage() {
                       style={{ marginTop: 2 }}
                     >
                       <option value="">none</option>
-                      {['8.1', '8.2', '8.3', '8.4'].map((v) => (
+                      {PHP_VERSIONS.map((v) => (
                         <option key={v} value={v}>
                           {v}
                           {php && !php.offered_by_package.includes(v) ? ' (not in package)' : ''}

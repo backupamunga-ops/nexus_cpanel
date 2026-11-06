@@ -21,6 +21,7 @@ type Deps struct {
         HomeRoot             string       // C13 confined root for hosting-account home dirs
         VhostRoot            string       // nginx vhost include dir; overridable in tests
         NginxBinary          string       // nginx path; empty = exec.LookPath (tests inject a fake)
+        SystemctlBinary      string       // systemctl path; empty = exec.LookPath (tests inject a fake)
         CertRoot             string       // ssl.* cert store; overridable in tests
         ACMEDirectory        string       // ACME directory URL; default Let's Encrypt production
         ACMEHTTP             *http.Client // injected for tests against a fake CA

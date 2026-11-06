@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditAppender, InjectAudit } from '../audit/audit.service';
 import { AgentClientService } from '../agent/agent-client.service';
 import { Actor } from '../sites/sites.service';
+import { renderVhost } from '../sites/vhost';
 
 /**
  * Per-site PHP-FPM pools (API spec §4.7: GET/PATCH /domains/{id}/php).
@@ -24,7 +25,9 @@ import { Actor } from '../sites/sites.service';
  * an uninstalled version is a precondition, not a silent no-pool.
  */
 
-const PHP_VERSION_RE = /^8\.[1-4]$/;
+// 8.5 mirrors sites.service's allowlist: distro PHP on brand-new Ubuntu
+// (26.04 ships 8.5; ondrej/php has no resolute dist yet).
+const PHP_VERSION_RE = /^8\.[1-5]$/;
 
 const PM_MODES = new Set(['dynamic', 'static', 'ondemand']);
 const POOL_INT_KEYS = [
@@ -223,13 +226,17 @@ export class PhpService {
           hostingAccountId: domain.hosting_account_id,
         });
       });
+      // The vhost loses its fastcgi block (back to static) and nginx picks
+      // the change up on reload — the site never keeps serving a socket that
+      // has no pool behind it.
+      await this.refreshVhost(domain, null, actor);
       return this.getForDomain(domainId, actor);
     }
 
     // Setting / changing the version and/or the pool config.
     const version = String(input.php_version ?? current?.version ?? '');
     if (!PHP_VERSION_RE.test(version)) {
-      throw new BadRequestException('php_version must be one of 8.1 | 8.2 | 8.3 | 8.4');
+      throw new BadRequestException('php_version must be one of 8.1 | 8.2 | 8.3 | 8.4 | 8.5');
     }
     const offered = account.package?.php_versions ?? [];
     if (offered.length > 0 && !offered.includes(version)) {
@@ -295,7 +302,63 @@ export class PhpService {
         hostingAccountId: domain.hosting_account_id,
       });
     });
+    // Re-render the vhost with the fastcgi block for this version and reload
+    // nginx. Runs AFTER the commit: the pool exists by now, so the socket the
+    // vhost points at is real. A failure here surfaces honestly — the next
+    // successful php.update / site edit re-renders and converges.
+    await this.refreshVhost(domain, version, actor);
     this.logger.log(`php pool applied for ${domain.name} (php ${version})`);
     return this.getForDomain(domainId, actor);
+  }
+
+  /**
+   * Re-renders and re-applies the site's vhost for the given PHP state
+   * (null = static), reloads nginx, and records the exact bytes as the new
+   * active 'nginx_vhost' config_version. Rendering comes from the shared
+   * vhost module — the same deterministic bytes the sites flows write, so
+   * vhost history stays one continuous timeline across both services.
+   */
+  private async refreshVhost(
+    domain: { id: string; name: string; document_root: string },
+    version: string | null,
+    actor?: Actor,
+  ): Promise<void> {
+    const aliasRows: Array<{ alias_name: string }> = await this.prisma.domainAliase.findMany({
+      where: { domain_id: domain.id, deleted_at: null },
+      select: { alias_name: true },
+    });
+    const redirectRows = await this.prisma.redirect.findMany({
+      where: { domain_id: domain.id, deleted_at: null },
+    });
+    const content = renderVhost(
+      domain.name,
+      domain.document_root,
+      aliasRows.map((a: { alias_name: string }) => a.alias_name),
+      redirectRows,
+      version,
+    );
+    await this.agent.nginxApplyVhost(domain.name, content);
+    await this.agent.nginxReload();
+    await this.prisma.$transaction(async (tx) => {
+      const prev = await tx.configVersion.findFirst({
+        where: { target_type: 'nginx_vhost', target_id: domain.id },
+        orderBy: { version: 'desc' },
+        select: { version: true },
+      });
+      await tx.configVersion.updateMany({
+        where: { target_type: 'nginx_vhost', target_id: domain.id, is_active: true },
+        data: { is_active: false },
+      });
+      await tx.configVersion.create({
+        data: {
+          target_type: 'nginx_vhost',
+          target_id: domain.id,
+          version: (prev?.version ?? 0) + 1,
+          content,
+          rendered_by: actor?.userId ?? null,
+          is_active: true,
+        },
+      });
+    });
   }
 }

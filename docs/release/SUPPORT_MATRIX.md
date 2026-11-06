@@ -27,6 +27,34 @@ integration, Dovecot/Postfix maps. There is no non-Linux agent, by design.
 | Go | ≥ 1.23 (go.mod toolchain) | build-time only |
 | Valkey / Redis | 8.x | dev compose ships Valkey 8; queue work is BullMQ-shaped (ADR-0018) |
 
+## Hosted-site runtimes (node-operator install, panel-managed)
+
+The panel refuses — with a named-binary error — to provision what the node
+lacks; installing these IS the operator task (agent spec §4.6/§4.10, ADR-0019).
+
+| Component | Version | Notes |
+|---|---|---|
+| MariaDB | 11.x | `apt-get install mariadb-server`; Ubuntu 26.04 archive ships **11.8.6** (verified live 2026-11-06). The agent provisions over the Unix socket as root — no root-password setup (ADR-0001/0015) |
+| PHP-FPM | 8.1 – 8.5 per site | the version directory under `/etc/php` IS the install record; one pool per site (`php.create_pool`). Ubuntu 26.04 ships **8.5** in the archive — ondrej/php has no resolute dist yet, so 8.5 joined the allowlist (live-VM run, 2026-11-06) |
+| WP-CLI | 2.x | required by Apps → Install WordPress; not in the resolute archive — official phar into `/usr/local/bin/wp` |
+
+Operator prep that the live run exercised (Ubuntu 26.04):
+
+```bash
+apt-get install -y mariadb-server
+curl -sSLo /usr/local/bin/wp \
+  https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+chmod +x /usr/local/bin/wp
+apt-get install -y php8.5-fpm php8.5-cli php8.5-mysql php8.5-curl php8.5-gd \
+  php8.5-xml php8.5-mbstring php8.5-zip php8.5-intl
+# the agent writes per-site pools to /etc/php/8.5/pools — teach fpm to load them:
+mkdir -p /etc/php/8.5/pools
+printf '; managed by nexuspanel\ninclude=/etc/php/8.5/pools/*.conf\n' \
+  > /etc/php/8.5/fpm/pool.d/zz-nexuspanel-pools.conf
+systemctl enable --now mariadb php8.5-fpm
+```
+
+
 ## Panel feature surfaces (narrowed from browsers)
 
 | Browser | Web UI | Notes |

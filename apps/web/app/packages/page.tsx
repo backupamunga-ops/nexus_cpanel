@@ -47,7 +47,8 @@ const QUOTA_FIELDS: Array<{ key: keyof QuotaSet; label: string; hint: string }> 
   { key: 'processes', label: 'Processes', hint: '≤ 4096' },
 ];
 
-const PHP_VERSIONS = ['8.1', '8.2', '8.3', '8.4'];
+// 8.5 = distro PHP on Ubuntu 26.04 (ondrej/php has no resolute dist yet).
+const PHP_VERSIONS = ['8.1', '8.2', '8.3', '8.4', '8.5'];
 const POLICIES = ['alert', 'throttle', 'suspend'];
 
 interface FeatureRow {
