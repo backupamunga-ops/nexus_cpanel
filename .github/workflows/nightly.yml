@@ -1,0 +1,94 @@
+# NexusPanel nightly — performance SLO gate (P7, BUILD_PLAN §"P7").
+#
+# Boots a FRESH stack on a GitHub runner (postgres service + canonical DDL +
+# control plane) and runs the public portion of the k6 API SLO suite with
+# the SLO thresholds ENFORCED — an API latency regression fails the nightly
+# instead of shipping. The authenticated + agent-op suites need a root agent
+# and real credentials; they run on the live-VM acceptance rig (AS-BUILT §3).
+name: nightly
+
+on:
+  schedule:
+    - cron: '17 3 * * *' # daily 03:17 UTC — off the top of the hour
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  api-slo:
+    name: api p95 ≤ 300 ms (fresh stack)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: nexuspanel
+          POSTGRES_PASSWORD: nexuspanel-ci-only
+          POSTGRES_DB: nexuspanel
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nexuspanel"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://nexuspanel:nexuspanel-ci-only@localhost:5432/nexuspanel
+      AUTH_JWT_SECRET: nightly-ci-secret-0123456789abcdef0123456789abcdef
+      AUDIT_STORE: memory
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Apply the canonical DDL (ADR-0004 source of truth)
+        run: |
+          PGPASSWORD=nexuspanel-ci-only psql -h localhost -U nexuspanel -d nexuspanel \
+            -f specs/nexuspanel-schema-v2.0.sql
+
+      - name: Install workspace dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Generate the Prisma client
+        run: npm run prisma:generate --workspace apps/control-plane
+
+      - name: Start the control plane
+        run: |
+          npm run dev --workspace apps/control-plane > /tmp/cp.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:3000/api/v1/health > /dev/null 2>&1; then
+              echo "control plane healthy after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "control plane did not become healthy"; tail -50 /tmp/cp.log; exit 1
+
+      - uses: grafana/setup-k6-action@v1
+
+      - name: k6 — API SLO (public scenarios, thresholds enforced)
+        run: k6 run e2e/load/k6-api-slo.js
+
+      - name: Always show control-plane tail on failure
+        if: failure()
+        run: tail -100 /tmp/cp.log
+
+      - name: Upload k6 summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-api-slo-summary
+          path: |
+            /tmp/k6-summary.json
+          if-no-files-found: ignore

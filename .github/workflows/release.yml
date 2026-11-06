@@ -1,0 +1,86 @@
+# NexusPanel release — cosign-signed artifacts + SBOM (P7, C19/C20).
+#
+# Triggered by v* tags. Produces:
+#   - the Go agent binary (linux/amd64, stripped, static)
+#   - SBOMs (SPDX) for the agent binary and the npm workspace tree
+#   - keyless cosign signatures for every artifact (bundle attached)
+# Everything is attached to the GitHub Release for the tag. The panel's
+# self-update path (C20) accepts only cosign-verified manifests — see
+# docs/release/INSTALLER_V1.md §6.
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # create the release and upload artifacts
+  id-token: write # keyless cosign signing (Fulcio/Rekor)
+
+jobs:
+  artifacts:
+    name: build, SBOM, cosign-sign
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/agent/go.mod
+          cache: false # stdlib-only module — no go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Build the agent binary (linux/amd64, static, stripped)
+        working-directory: apps/agent
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -trimpath -ldflags "-s -w" \
+            -o ../../dist/nexuspanel-agent-linux-amd64 ./cmd/agent
+
+      - name: Smoke the binary
+        run: ./dist/nexuspanel-agent-linux-amd64 --help 2>&1 | head -5 || true
+
+      - name: Generate SBOM (SPDX) for the agent binary
+        uses: anchore/sbom-action@v0
+        with:
+          artifact: dist/nexuspanel-agent-linux-amd64
+          format: spdx-json
+          output-file: dist/nexuspanel-agent-linux-amd64.spdx.json
+
+      - name: Generate SBOM (SPDX) for the npm workspace tree
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/nexuspanel-npm-workspaces.spdx.json
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Cosign sign every artifact (keyless, Rekor-bundled)
+        run: |
+          for f in dist/*; do
+            cosign sign-blob --yes \
+              --bundle "${f}.bundle" \
+              --output-signature "${f}.sig" \
+              "$f"
+          done
+          ls -la dist/
+
+      - name: Create the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/nexuspanel-agent-linux-amd64
+            dist/nexuspanel-agent-linux-amd64.spdx.json
+            dist/nexuspanel-agent-linux-amd64.bundle
+            dist/nexuspanel-agent-linux-amd64.sig
+            dist/nexuspanel-npm-workspaces.spdx.json
+            dist/nexuspanel-npm-workspaces.bundle
+            dist/nexuspanel-npm-workspaces.sig

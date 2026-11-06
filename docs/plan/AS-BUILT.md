@@ -4,11 +4,11 @@
 
 | Field | Value |
 |---|---|
-| Version | 2.0 (reconstructed) |
+| Version | 2.1 |
 | Date | 2026-11-06 |
 | Status | ACTIVE — reconstructed from `specs/` + git history after the 2026-11-05 sandbox recycle |
-| Repo state | `origin/main` @ `49627f9` — 104 commits, CI green (4/4 checks) |
-| Docs portal | 25 chapters live, v0.6.0 badge, 32-shot screenshot set (`docs/portal/static/screenshots/p4/`) |
+| Repo state | `origin/main` @ `f20abc4` — 106 commits, CI green (4/4 checks) |
+| Docs portal | 26 chapters live, v0.6.0 badge, 32-shot screenshot set (`docs/portal/static/screenshots/p4/`) |
 
 > **Provenance & honesty note.** The original working master doc was lost in the sandbox recycle of
 > 2026-11-05. This register was rebuilt from the git log, ADR files, portal state and CI results —
@@ -27,9 +27,10 @@
 | Batches B06–B10 (P4) | Complete — DNS, mail, deliverability, databases, backups + DirectAdmin-simple UI refresh |
 | Batches B11–B13 (P5) | Complete — firewall/fail2ban, WAF/ClamAV, jobs/webhooks/notifications + audit verify cron |
 | Batches B14–B15 (P6) | Complete — app installer/push-to-deploy, migration center |
-| ADRs | ADR-0001 … ADR-0020, all landed (`docs/adr/`) |
+| P7 (extensions & release engineering) | **Extension SDK runtime + `nexus-example-reporter` complete** (`f20abc4`) — registration/scope-review/one-time credentials, closed `/api/v1/ext/*` doorway (60/min, metadata-only), signed hooks + heartbeats, sandboxed widgets; release engineering landed — installer spec v1.0 + support matrix published, k6 SLO harness + nightly gate, cosign+SBOM release workflow (C19/C20) |
+| ADRs | ADR-0001 … ADR-0021, all landed (`docs/adr/`) |
 | CI | `agent (Go)` ✅ · `control-plane (NestJS)` ✅ · `web (Next.js)` ✅ · `schema drift (DDL ↔ Prisma)` ✅ |
-| Gates at HEAD | go vet+test ok · jest 396 pass (33 suites) · typecheck ok · permissions:check ok · prisma:check clean · next build ok |
+| Gates at HEAD | go vet+test ok · jest 424 pass (35 suites) · typecheck ok · permissions:check ok · prisma:check clean · next build ok |
 | UI | DirectAdmin-simple refresh landed (`a2eb83e`): grouped icon sidebar, dark/light themes, real dashboard, design tokens |
 
 ---
@@ -53,6 +54,7 @@
 | **B13** | Job center (BullMQ-shaped registry, explicit retriggers), HMAC webhooks (dead-letter + redrive + signed ping), notification center, daily audit-chain verify cron (C11), migration spec draft (G-17) | `4659e28` | 0018 | gates: jest 371, 27-shot set |
 | **B14** | App installer — WordPress one-click (WP-CLI as account user, never root), staging clone; push-to-deploy (HMAC webhooks, release-symlink history/rollback) | `842bd97` | 0019 | gates: jest 383 |
 | **B15** | Migration center — cPanel cpmove import: analyze → zero-write dry-run → resumable execute → verify (per-entity sha256, byte-for-byte checks), BIND zonefile parser, SKIP always explicit + reason-coded, artifact credentials never imported, report + DNS cutover/rollback plan | `49627f9` | 0020 | gates: jest 396 (13 new), 32-shot set |
+| **P7** | Extension SDK runtime — register → scope review → approve (one-time creds) → operate; closed `/api/v1/ext/*` doorway (60/min, metadata-only resolvers), signed hooks + 60 s heartbeats, sandboxed dashboard widgets; `nexus-example-reporter` reference extension; release engineering: installer spec v1.0 + support matrix, k6 SLO harness + nightly gate, cosign+SBOM release workflow | `f20abc4` | 0021 | gates: jest 424 (28 new) |
 
 ---
 
@@ -70,7 +72,7 @@ Verified by automated gates and CI on the dev rig. **Not yet** exercised on a re
 | B12 — CRS fires detect-vs-block on staged payload | dev-rig verified — live-VM acceptance pending |
 | B14 — fresh-account WP install < 5 min staged | dev-rig verified — live-VM acceptance pending |
 | B15 — real cPanel account migrated in staging with full report | dev-rig verified — live-VM acceptance pending |
-| P7 — extension SDK runtime, `nexus-example-reporter`, perf SLO passes, installer finalization, cosign-signed GA artifacts + SBOM | not started (planned) |
+| P7 — example extension passes against a fresh install; API p95 ≤ 300 ms + agent op p95 ≤ 1 s on reference hardware; installer E2E on a live VM | SDK runtime: dev-rig verified (`extensions.service.spec` + `ext-proxy.service.spec`, 28 tests; example extension E2E pending the live rig) — SLO harness landed, thresholds enforced nightly for public API; live-VM acceptance pending |
 
 **Recommended next milestone:** one live-VM acceptance run executing the pending rows above in
 dependency order (B06 DNS → B07/B08 mail → B09 → B10 → B11 → B12 → B14 → B15), using the portal's
@@ -121,9 +123,11 @@ Getting-started and server-settings chapters as the runbook.
 
 ## 6. What's Next
 
-1. **Live-VM acceptance run** (Section 3 pending rows) — the only thing standing between "built" and
-   "proven on real hardware" for P4–P6.
-2. **P7 (per plan, not yet detailed):** extension SDK runtime + `nexus-example-reporter` acceptance,
-   performance SLO passes, installer finalization, cosign-signed GA artifacts + SBOM, docs
-   regeneration.
+1. **Live-VM acceptance run** (Section 3 pending rows, now including P7's
+   example-extension E2E + the full SLO pass) — the only thing standing
+   between "built" and "proven on real hardware" for P4–P7.
+2. **P7 remainder:** per-call confirmation queue for extension write scopes
+   (v1.x trust levels, ADR-0021 §2), extension storage namespaces (SDK spec
+   §8), the `install.sh` script that implements the finalized
+   `docs/release/INSTALLER_V1.md`, GA tag + changelog.
 3. Standing: rotate the current push token if not already done.
