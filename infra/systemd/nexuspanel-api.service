@@ -18,6 +18,9 @@ User=nexuspanel
 Group=nexuspanel
 WorkingDirectory=/opt/nexuspanel/apps/control-plane
 EnvironmentFile=/etc/nexuspanel/nexuspanel.env
+# Loopback-only: the public origin (install.sh public-origin) or an SSH tunnel
+# proxies to 127.0.0.1 — finding #11 of the live-VM run (see main.ts).
+Environment=HOST=127.0.0.1
 ExecStart=/usr/bin/node dist/main.js
 
 # Hardening baseline (installer spec §3):
@@ -39,7 +42,7 @@ LimitNOFILE=65535
 Restart=on-failure
 RestartSec=2s
 
-# :3000 is the API port. The ufw baseline opens only 22/80/443, so it is not
-# publicly reachable; a reverse proxy that terminates 80/443 may forward to it.
+# :3000 is the API port, bound to 127.0.0.1 via HOST= above. The ufw baseline
+# opens only 22/80/443; the public origin proxies 443 → this port.
 [Install]
 WantedBy=multi-user.target

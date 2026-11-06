@@ -8,6 +8,8 @@
 #   sudo infra/install.sh            # fresh install
 #   sudo infra/install.sh upgrade    # §5: pull, rebuild, restart, verify
 #   sudo infra/install.sh uninstall  # §4: remove units; data decisions stay yours
+#   sudo infra/install.sh public-origin <hostname>   # §7: TLS reverse proxy
+#   sudo infra/install.sh public-origin off          # §7: back to loopback-only
 #
 # Non-negotiables (installer spec §1):
 #   - the control plane NEVER runs as root — every privileged operation is a
@@ -239,12 +241,103 @@ install_units() {
   ok "units active — health gate passed"
 }
 
-wait_health() { # name, test-command — 60s budget
-  local i=0
+wait_health() { # name, test-command, [budget-seconds=60]
+  local i=0 budget="${3:-60}"
   until eval "${2:-true}"; do
-    i=$((i+1)); [ "$i" -ge 60 ] && die "$1 did not become healthy within 60s (journalctl -u <unit> -e)"
+    i=$((i+1)); [ "$i" -ge "$budget" ] && die "$1 did not become healthy within ${budget}s (journalctl -u <unit> -e)"
     sleep 1
   done
+}
+
+# --- public origin (spec §7): Caddy TLS proxy in front of the loopback pair ----
+PUBLIC_ORIGIN_CONF=/etc/caddy/Caddyfile
+
+public_origin_up() {
+  require_root; REPO_DIR="$(repo_root)"
+  local domain="${1:-}"
+  case "$domain" in
+    ''|*[!a-zA-Z0-9.-]*|*..*|.*|*.) die "usage: $0 public-origin <hostname>   (e.g. panel.example.com)" ;;
+    *.local|*.localhost|*.test|*.example|*.invalid)
+      die "'$domain' is not publicly resolvable — Let's Encrypt cannot issue a certificate for it" ;;
+  esac
+  # The hostname must point HERE, or ACME will fail. Honest check, escapable
+  # for NAT/port-forward setups with FORCE_PUBLIC_ORIGIN=1.
+  local ip pub
+  ip="$(dig +short A "$domain" 2>/dev/null | grep -E '^[0-9.]+$' | tail -1 || true)"
+  pub="$(curl -fsS --max-time 10 https://api.ipify.org 2>/dev/null \
+    || ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' \
+    || true)"
+  if [ -z "$ip" ]; then
+    log "  (DNS for $domain not resolving yet — continuing; ACME will fail loudly if it is not pointed here)"
+  elif [ "$ip" != "$pub" ] && [ "${FORCE_PUBLIC_ORIGIN:-0}" != 1 ]; then
+    die "$domain resolves to $ip but this machine's public address is ${pub:-unknown}.
+Add/fix the A record first, or re-run with FORCE_PUBLIC_ORIGIN=1 if NAT is in play."
+  fi
+
+  log "public origin — installing Caddy (distro archive first, official repo fallback)"
+  export DEBIAN_FRONTEND=noninteractive
+  if ! apt-get install -y -qq caddy >/dev/null 2>&1; then
+    curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' -o /tmp/caddy.asc
+    gpg --batch --yes --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg /tmp/caddy.asc
+    rm -f /tmp/caddy.asc
+    curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+      -o /etc/apt/sources.list.d/caddy-stable.list
+    apt-get update -qq && apt-get install -y -qq caddy >/dev/null
+  fi
+  command -v caddy >/dev/null || die "caddy did not install — no archive package and the official repo failed"
+
+  log "public origin — writing $PUBLIC_ORIGIN_CONF for $domain"
+  if [ -f "$PUBLIC_ORIGIN_CONF" ]; then cp -a "$PUBLIC_ORIGIN_CONF" "$PUBLIC_ORIGIN_CONF.bak"; fi
+  # Same-origin model: the browser only ever talks to $domain — /api/v1 (REST
+  # and the ws event stream) goes straight to the control plane, everything
+  # else to the Next.js web origin. Both upstreams stay loopback-only.
+  cat > "$PUBLIC_ORIGIN_CONF" <<EOF
+# NexusPanel public origin — WRITTEN BY 'infra/install.sh public-origin'.
+# Re-running that command rewrites this file (previous version: Caddyfile.bak).
+# Certificates (Let's Encrypt) and the HTTP→HTTPS redirect are automatic.
+
+${domain} {
+        encode zstd gzip
+        header {
+                Strict-Transport-Security "max-age=31536000"
+                X-Content-Type-Options "nosniff"
+                Referrer-Policy "same-origin"
+                -Server
+        }
+        route {
+                handle /api/v1/* {
+                        reverse_proxy 127.0.0.1:3000
+                }
+                handle {
+                        reverse_proxy 127.0.0.1:5173
+                }
+        }
+        log {
+                output file /var/log/caddy/nexuspanel-access.log
+        }
+}
+EOF
+  caddy validate --config "$PUBLIC_ORIGIN_CONF" >/dev/null || die "generated Caddyfile failed validation"
+  ufw allow 80/tcp  >/dev/null
+  ufw allow 443/tcp >/dev/null
+  systemctl enable --now caddy >/dev/null 2>&1 || systemctl restart caddy
+
+  log "public origin — waiting for certificate issuance + first TLS request (up to 120s)"
+  wait_health "https origin (https://$domain/api/v1/health)" \
+    "curl -fsS https://$domain/api/v1/health >/dev/null" 120
+  curl -fsS -o /dev/null "https://$domain/" || die "api answers over TLS but the web origin does not — journalctl -u caddy -e && systemctl status nexuspanel-web"
+  ok "public origin live: https://$domain  (HTTP→HTTPS redirect + auto-renewal)"
+  echo "  tunnels are no longer needed; the API (:3000) and web (:5173) stay loopback-only"
+  echo "  optional hardening — restrict the panel to your IPs, add above the route block:"
+  echo "    @lan remote_ip 1.2.3.4        # then: handle @lan { ... }, handle { respond 403 }"
+}
+
+public_origin_off() {
+  require_root
+  [ -f "$PUBLIC_ORIGIN_CONF" ] || die "no public origin configured ($PUBLIC_ORIGIN_CONF missing)"
+  printf '# NexusPanel public origin disabled %s (config backup: Caddyfile.bak)\n' "$(date -u +%FT%TZ)" > "$PUBLIC_ORIGIN_CONF"
+  systemctl disable --now caddy >/dev/null 2>&1 || true
+  ok "public origin disabled — the panel is loopback/tunnel-only again"
 }
 
 # --- step 7: first super admin (interactive, written nowhere) -------------------
@@ -335,6 +428,7 @@ backup_prompt() {
   echo
   echo "NexusPanel is installed."
   echo "  panel (web):   ssh -L 5173:127.0.0.1:5173 -L 3000:127.0.0.1:3000 <user>@<host>  → http://localhost:5173"
+  echo "  your domain:   sudo infra/install.sh public-origin panel.example.com   (TLS via Let's Encrypt)"
   echo "  health:        curl http://127.0.0.1:3000/api/v1/health"
   echo "  units:         systemctl status nexuspanel-{agent,api,web}"
   echo "  acceptance:    docs/runbooks/acceptance-p4-p7.md"
@@ -357,6 +451,11 @@ do_upgrade() {
     systemctl restart nexuspanel-agent.service
     ok "agent binary changed — rebuilt and restarted (WAL drains on reconnect)"
   fi
+  # Finding #11b, live-VM run follow-up: unit files shipped in fix commits
+  # never reached a deployed box through 'upgrade' (only the binary did).
+  # Re-install the units so /etc/systemd never drifts from the repo.
+  install -m 0644 "$REPO_DIR"/infra/systemd/nexuspanel-*.service /etc/systemd/system/
+  systemctl daemon-reload
   echo "note: forward-only DDL migrations are applied by hand when shipped (ADR-0004); none pending at v1.0."
   systemctl start nexuspanel-api.service nexuspanel-web.service
   wait_health "control plane" 'curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null'
@@ -377,6 +476,7 @@ do_uninstall() {
   echo "  - database '$NP_DB_NAME' (drop: sudo -u postgres dropdb $NP_DB_NAME && sudo -u postgres psql -c \"DROP ROLE ${NP_DB_USER}\")"
   echo "  - keys $NP_KEYS  (destroy: rm -rf $NP_KEYS — only after confirming no ciphertext will ever need reading)"
   echo "  - repo $NEXUS_HOME and the $NP_SVC_USER account"
+  echo "  - public origin, if you used it: systemctl disable --now caddy && rm $PUBLIC_ORIGIN_CONF"
 }
 
 # --- main -----------------------------------------------------------------------------
@@ -384,5 +484,8 @@ case "${1:-install}" in
   install)   preflight; install_packages; create_database; create_keys; write_env_file; build_artifacts; install_units; create_first_admin; harden_and_verify; backup_prompt ;;
   upgrade)   do_upgrade ;;
   uninstall) do_uninstall ;;
-  *) die "usage: $0 [install|upgrade|uninstall]" ;;
+  public-origin)
+    shift || true
+    if [ "${1:-}" = "off" ]; then public_origin_off; else public_origin_up "${1:-}"; fi ;;
+  *) die "usage: $0 [install|upgrade|uninstall|public-origin <hostname>|public-origin off]" ;;
 esac
