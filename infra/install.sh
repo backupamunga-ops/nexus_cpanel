@@ -285,7 +285,12 @@ create_first_admin() {
 # --- step 8: hardening baseline (§3) + verification ------------------------------
 harden_and_verify() {
   log "step 8/8 — hardening baseline (C10) + verification"
-  local ssh_port; ssh_port="$(sshd -T 2>/dev/null | awk '/^port/{print $2; exit}' || echo 22)"
+  # Finding #8, acceptance attempt 6: awk's early `exit` SIGPIPEs sshd -T,
+  # and under pipefail the `|| echo 22` appended a SECOND value -> ufw got a
+  # multiline "port". Guard the pipeline, then accept only a clean integer.
+  local ssh_port
+  ssh_port="$(sshd -T 2>/dev/null | awk '/^port/{print $2; exit}' || true)"
+  case "$ssh_port" in ''|*[!0-9]*) ssh_port=22 ;; esac
   ufw allow "${ssh_port:-22}"/tcp  >/dev/null
   [ "${ssh_port:-22}" != "22" ] && ufw allow 22/tcp >/dev/null || true
   ufw allow 80/tcp  >/dev/null
