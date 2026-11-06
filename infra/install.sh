@@ -232,6 +232,10 @@ install_units() {
     '[ -S /run/nexuspanel/agent.sock ]'
   wait_health "control plane" \
     'curl -fsS http://127.0.0.1:3000/api/v1/health >/dev/null'
+  # Finding #9b, acceptance attempt 8: the web unit was never health-gated —
+  # a dead web origin exited 0. Gate it like the API.
+  wait_health "web origin" \
+    'curl -fsS -o /dev/null http://127.0.0.1:5173/'
   ok "units active — health gate passed"
 }
 

@@ -20,7 +20,10 @@ WorkingDirectory=/opt/nexuspanel/apps/web
 Environment=NODE_ENV=production
 Environment=CONTROL_PLANE_INTERNAL_URL=http://127.0.0.1:3000
 Environment=PORT=5173
-ExecStart=/usr/bin/node node_modules/next/dist/bin/next start -H 127.0.0.1 -p 5173
+# next is a workspace dependency HOISTED to the repo root by npm workspaces
+# (finding #9 of the live-VM acceptance run: apps/web has no own
+# node_modules, the old relative path only worked on the dev rig).
+ExecStart=/usr/bin/node /opt/nexuspanel/node_modules/next/dist/bin/next start -H 127.0.0.1 -p 5173
 
 # Same hardening baseline as the API unit (installer spec §3):
 NoNewPrivileges=true
